@@ -14,7 +14,6 @@ using Dates
 using JSON
 using CodecZlib
 using IgSim
-using IgBLAST
 
 include("types.jl")
 include("match.jl")

@@ -10,8 +10,9 @@ Extensible V(D)J benchmark harness: pluggable annotators, metrics, and
 species-agnostic panels. Library-first (`run_suite`) for embedding from
 IgFormer; optional standalone script for full reports.
 
-**Built-in tool package dependency:** [IgBLAST.jl](https://github.com/mashu/IgBLAST.jl) only.
-SwiftIG (CLI) and IgFormer plug in with **no** package dependency.
+**Built-in tool:** [IgBLAST.jl](https://github.com/mashu/IgBLAST.jl) via a Package
+Extension (optional at load time). SwiftIG (CLI) and IgFormer plug in with **no**
+package dependency.
 
 ## Installation
 

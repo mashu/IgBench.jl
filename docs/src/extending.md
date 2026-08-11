@@ -34,4 +34,4 @@ end
 
 ## New panel
 
-Subtype [`AbstractPanel`](@ref) and implement [`load_panel`](@ref) → [`PanelData`](@ref).
+Subtype [`AbstractPanel`](@ref) and implement `load_panel` → [`PanelData`](@ref).

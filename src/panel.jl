@@ -36,7 +36,7 @@ end
 Simulated panel with causal gold labels.
 
 `gallery` ∈ `:full` (any V from full DB), `:train` (held removed), `:held`
-(only held V via [`IgSim.HoldoutVGenerator`](@ref)).
+(only held V via `IgSim.HoldoutVGenerator`).
 """
 struct SimGoldPanel <: AbstractPanel
     id::String

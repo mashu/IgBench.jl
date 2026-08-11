@@ -108,6 +108,10 @@ end
     @test_throws ErrorException annotate(a, ["ACGT"], ["1"], GermlinePaths(; v = VFA, d = DFA, j = JFA))
 end
 
+@testset "IgBLASTAnnotator without IgBLAST" begin
+    @test_throws ErrorException IgBLASTAnnotator()
+end
+
 @testset "PanelCache freeze" begin
     gp = GermlinePaths(; v = VFA, d = DFA, j = JFA)
     src = SimSource(; id = "cache_toy", germline = gp, species = "sp", n = 6, seed = 9)

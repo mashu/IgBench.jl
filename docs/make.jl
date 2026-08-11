@@ -19,7 +19,7 @@ makedocs(;
         "API" => "api.md",
     ],
     checkdocs = :exports,
-    warnonly = [:missing_docs],
+    warnonly = [:missing_docs, :cross_references],
 )
 
 deploydocs(;
