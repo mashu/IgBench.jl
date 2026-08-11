@@ -71,16 +71,18 @@ function tags_to_dict(tags)
 end
 
 """
-    run_suite(suite; mode, store, step, tags) -> BenchResult
+    run_suite(suite; mode, store, step, tags, cache) -> BenchResult
 
 Library entrypoint for standalone scripts and IgFormer embedding.
 Pass `store = nothing` / [`NullRunStore`](@ref) to skip disk writes.
+Pass `cache = PanelCache(dir)` to freeze panel sequences across diagnostic steps.
 """
 function run_suite(suite::BenchSuite;
                    mode::RunMode = FullReportMode(),
                    store = nothing,
                    step = nothing,
-                   tags = (;))
+                   tags = (;),
+                   cache = nothing)
     store_obj = isnothing(store) ? NullRunStore() : store
     tag_dict = tags_to_dict(tags)
     !isnothing(step) && (tag_dict["step"] = Int(step))
@@ -94,7 +96,7 @@ function run_suite(suite::BenchSuite;
 
     for panel_spec in suite.panels
         panel = panel_for_mode(panel_spec, mode)
-        data = load_panel(panel)
+        data = load_panel_cached(panel, cache)
         panels_meta[data.id] = data.meta
 
         preds = Dict{String,Vector{CallRecord}}()

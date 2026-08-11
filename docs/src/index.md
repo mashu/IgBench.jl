@@ -31,6 +31,9 @@ result = run_suite(suite;
 Describe cohorts with [`DatasetManifest`](@ref): [`SimSource`](@ref) (IgSim gold)
 and [`AirrSource`](@ref) (real AIRR). `species` is a free string — never hardcoded.
 
+Pass `cache = PanelCache("cache/run")` to [`run_suite`](@ref) so diagnostic steps
+reuse the same frozen sequences.
+
 ## Modes
 
 | Mode | Use |

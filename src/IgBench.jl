@@ -44,6 +44,7 @@ export
     TimingSpec, TimingResult, time_annotate,
     RunMode, DiagnosticMode, FullReportMode, mode_name,
     AbstractPanel, PanelData, SimGoldPanel, AirrPanel, load_panel,
+    PanelCache, load_panel_cached,
     AbstractRunStore, DirectoryRunStore, NullRunStore, SCHEMA_VERSION,
     CompareSpec, BenchSuite, BenchResult, run_suite,
     default_compares, suite_from_manifest,

@@ -158,3 +158,66 @@ end
 
 panel_for_mode(p::AirrPanel, ::FullReportMode) = p
 panel_for_mode(p::AbstractPanel, ::RunMode) = p
+
+panel_germline(p::SimGoldPanel) = p.source.germline
+panel_germline(p::AirrPanel) = p.source.germline
+panel_species(p::SimGoldPanel) = p.source.species
+panel_species(p::AirrPanel) = p.source.species
+
+"""
+Disk cache of frozen panel sequences + labels (AIRR TSV.gz + meta JSON).
+
+Ensures mid-training diagnostics see the same N reads every step. Pass to
+[`run_suite`](@ref) as `cache=PanelCache("cache/demo")`.
+"""
+struct PanelCache
+    root::String
+end
+
+PanelCache(root::AbstractString) = PanelCache(String(root))
+
+function cache_paths(cache::PanelCache, panel_id::AbstractString)
+    safe = replace(String(panel_id), r"[^\w\.-]" => "_")
+    (airr = joinpath(cache.root, safe * ".airr.tsv.gz"),
+     meta = joinpath(cache.root, safe * ".meta.json"))
+end
+
+function panel_data_from_rows(p::AbstractPanel, rows::Vector{CallRecord},
+                              meta::Dict{String,Any})
+    ids = String[r.sequence_id for r in rows]
+    seqs = String[r.sequence for r in rows]
+    kind = String(get(meta, "kind", ""))
+    if kind == "sim"
+        PanelData(panel_id(p), panel_species(p), panel_germline(p),
+                  seqs, ids, rows, nothing, meta)
+    else
+        PanelData(panel_id(p), panel_species(p), panel_germline(p),
+                  seqs, ids, nothing, rows, meta)
+    end
+end
+
+function rows_for_cache(data::PanelData)
+    !isnothing(data.gold) && return data.gold
+    !isnothing(data.file_gold) && return data.file_gold
+    CallRecord[CallRecord(data.ids[i], data.sequences[i], "", "", "")
+               for i in eachindex(data.ids)]
+end
+
+"""Load panel, reading/writing [`PanelCache`](@ref) when provided."""
+load_panel_cached(p::AbstractPanel, ::Nothing) = load_panel(p)
+
+function load_panel_cached(p::AbstractPanel, cache::PanelCache)
+    paths = cache_paths(cache, panel_id(p))
+    if isfile(paths.airr) && isfile(paths.meta)
+        rows = read_airr_calls(paths.airr)
+        meta = Dict{String,Any}(String(k) => v for (k, v) in JSON.parsefile(paths.meta))
+        return panel_data_from_rows(p, rows, meta)
+    end
+    data = load_panel(p)
+    mkpath(cache.root)
+    write_airr_calls(paths.airr, rows_for_cache(data))
+    open(paths.meta, "w") do io
+        JSON.print(io, data.meta, 2)
+    end
+    data
+end

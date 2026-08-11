@@ -107,3 +107,16 @@ end
     a = SwiftIGAnnotator(; bin = "/nonexistent/swiftig_bin_xyz")
     @test_throws ErrorException annotate(a, ["ACGT"], ["1"], GermlinePaths(; v = VFA, d = DFA, j = JFA))
 end
+
+@testset "PanelCache freeze" begin
+    gp = GermlinePaths(; v = VFA, d = DFA, j = JFA)
+    src = SimSource(; id = "cache_toy", germline = gp, species = "sp", n = 6, seed = 9)
+    panel = SimGoldPanel(src, :full; n = 6)
+    cdir = mktempdir()
+    cache = PanelCache(cdir)
+    d1 = load_panel_cached(panel, cache)
+    d2 = load_panel_cached(panel, cache)
+    @test d1.sequences == d2.sequences
+    @test d1.ids == d2.ids
+    @test !isnothing(d1.gold) && d1.gold == d2.gold
+end
