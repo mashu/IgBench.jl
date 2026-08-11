@@ -14,16 +14,17 @@ end
 
 tool_name(a::IgBLASTAnnotator) = a.name
 
+# Extension hook — declare only (no methods). IgBenchIgBLASTExt adds the method.
+# Defining a stub method here and overwriting it in the ext breaks precompilation
+# on Julia 1.12+ ("Method overwriting is not permitted").
+function igblast_annotator_impl end
+
 """Build an [`IgBLASTAnnotator`](@ref); requires IgBLAST.jl to be loaded."""
 function IgBLASTAnnotator(; kwargs...)
+    isempty(methods(igblast_annotator_impl)) &&
+        error("IgBLAST.jl is not loaded. Add it to your environment " *
+              "(Pkg.add(url=\"https://github.com/mashu/IgBLAST.jl\")) to use IgBLASTAnnotator.")
     igblast_annotator_impl(; kwargs...)
 end
 
-function igblast_annotator_impl(; kwargs...)
-    error("IgBLAST.jl is not loaded. Add it to your environment " *
-          "(Pkg.add(url=\"https://github.com/mashu/IgBLAST.jl\")) to use IgBLASTAnnotator.")
-end
-
-function annotate(::IgBLASTAnnotator, sequences, ids, germline::GermlinePaths; kwargs...)
-    error("IgBLAST.jl is not loaded; cannot annotate with IgBLASTAnnotator")
-end
+# `annotate(::IgBLASTAnnotator, ...)` is provided by IgBenchIgBLASTExt only.

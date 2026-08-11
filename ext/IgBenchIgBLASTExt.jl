@@ -3,6 +3,7 @@ module IgBenchIgBLASTExt
 using IgBench
 using IgBLAST
 
+# Add a method to the parent hook (parent declares the function with no methods).
 function IgBench.igblast_annotator_impl(;
                                         name::AbstractString = "igblast",
                                         organism_param::AbstractString = "human",
