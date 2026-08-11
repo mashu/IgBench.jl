@@ -1,0 +1,10 @@
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+IgBench = "5268e64d-e121-4132-aad7-d47780ebda8e"
+
+[sources]
+IgBench = {path = "/home/mateusz/IgBench.jl"}
+
+[compat]
+Documenter = "1"
+julia = "1.10"
