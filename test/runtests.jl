@@ -16,6 +16,19 @@ const JFA = joinpath(FIX, "J.fasta")
     @test !exact_call_match("IGHV1-2*02", "IGHV1-2*01")
     @test span_iou(Span(1, 10), Span(5, 15)) ≈ 6 / 15
     @test isnan(span_iou(EMPTY_SPAN, Span(1, 5)))
+    @test call_field_empty("") && call_field_empty("NA") && call_field_empty(".")
+    @test primary_allele_call("IGHV1-46*01,IGHV1-46*03") == "IGHV1-46*01"
+    @test primary_allele_call("IGHV1-69*01/IGHV1-69D*01") == "IGHV1-69*01/IGHV1-69D*01"
+    @test fractional_call_score("IGHV1-46*01", "IGHV1-46*01") == 1
+    @test fractional_call_score("IGHV1-46*01,IGHV1-46*03", "IGHV1-46*01") ≈ 1 / 2
+    @test fractional_call_score("A,B,C", "A") ≈ 1 / 3
+    @test fractional_call_score("B,C", "A") == 0
+    @test fractional_call_score("", "IGHV1-46*01") == 0   # empty pred = FN
+    @test fractional_call_score("IGHV1-69*01/IGHV1-69D*01",
+                                "IGHV1-69*01/IGHV1-69D*01") == 1
+    @test exact_call_match(missing, "")
+    @test !exact_call_match(missing, "IGHD1-1*01")
+    @test allele_call_match(missing, "")
 end
 
 @testset "airr io roundtrip" begin
@@ -47,6 +60,28 @@ end
     @test m.d == 1.0
     @test m.n == 2
     @test m.d_n == 1
+    @test m.v_n == 2 && m.j_n == 2
+
+    # Fractional 1/n; empty gold skipped on V/D/J; empty pred = FN.
+    gold2 = [
+        CallRecord("a", "AAA", "A", "D", "J"),
+        CallRecord("b", "BBB", "", "X", "J"),   # empty V gold → skip V
+    ]
+    pred2 = [
+        CallRecord("a", "AAA", "A,B", "D", "J"),
+        CallRecord("b", "BBB", "Z", "", "J"),
+    ]
+    f = evaluate(FractionalCallAccuracy(), pred2, gold2)
+    @test f.v ≈ 0.5 && f.v_n == 1          # only row a; 1/2 for A,B
+    @test f.d == 0.5 && f.d_n == 2         # D hit + empty-pred FN
+    @test f.j == 1.0 && f.j_n == 2
+    cm = call_metrics(["A,B"], [""], ["J"], ["A"], ["X"], ["J"])
+    @test cm.v ≈ 0.5 && cm.d == 0.0 && cm.j == 1.0
+    @test cm isa MetricValue
+    p = evaluate(PrimaryCallAccuracy(), pred2, gold2)
+    @test p.v == 1.0 && p.v_n == 1         # primary of A,B is A
+    recs = call_records(["A"], ["D"], ["J"]; prefix = "x")
+    @test length(recs) == 1 && recs[1].sequence_id == "x1" && recs[1].v_call == "A"
 end
 
 @testset "SimGoldPanel + run_suite Fake" begin

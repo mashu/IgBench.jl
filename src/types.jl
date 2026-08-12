@@ -45,11 +45,14 @@ struct MetricValue
     j::Float64
     n::Int
     d_n::Int
+    v_n::Int
+    j_n::Int
 end
 
-MetricValue(; v, d, j, n, d_n = n) =
-    MetricValue(Float64(v), Float64(d), Float64(j), Int(n), Int(d_n))
+MetricValue(; v, d, j, n, d_n = n, v_n = n, j_n = n) =
+    MetricValue(Float64(v), Float64(d), Float64(j), Int(n), Int(d_n), Int(v_n), Int(j_n))
 
 function metric_dict(m::MetricValue)
-    Dict{String,Any}("v" => m.v, "d" => m.d, "j" => m.j, "n" => m.n, "d_n" => m.d_n)
+    Dict{String,Any}("v" => m.v, "d" => m.d, "j" => m.j, "n" => m.n,
+                     "d_n" => m.d_n, "v_n" => m.v_n, "j_n" => m.j_n)
 end

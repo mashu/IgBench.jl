@@ -38,8 +38,9 @@ export
     CallableAnnotator, FakeAnnotator,
     IgBLASTAnnotator, SwiftIGAnnotator,
     AbstractMetric, metric_name, evaluate,
-    ExactCallAccuracy, AlleleCallAccuracy, GeneCallAccuracy, SpanIoU,
-    default_metrics, agreement_metrics,
+    ExactCallAccuracy, AlleleCallAccuracy, GeneCallAccuracy,
+    FractionalCallAccuracy, PrimaryCallAccuracy, SpanIoU,
+    default_metrics, agreement_metrics, call_metrics, call_records,
     TimingSpec, TimingResult, time_annotate,
     RunMode, DiagnosticMode, FullReportMode, mode_name,
     AbstractPanel, PanelData, SimGoldPanel, AirrPanel, load_panel,
@@ -48,7 +49,8 @@ export
     CompareSpec, BenchSuite, BenchResult, run_suite,
     default_compares, suite_from_manifest,
     read_airr_calls, write_airr_calls,
-    parse_allele_calls, normalize_allele, allele_gene,
+    parse_allele_calls, normalize_allele, allele_gene, call_field_empty,
+    primary_allele_call, fractional_call_score, primary_call_match,
     exact_call_match, allele_call_match, gene_call_match, span_iou
 
 end # module

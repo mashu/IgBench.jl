@@ -26,6 +26,19 @@ result = run_suite(suite;
 # result.metrics is in-memory for logging; store optional (nothing / NullRunStore)
 ```
 
+## Canonical call metrics
+
+Prefer [`FractionalCallAccuracy`](@ref) (metric name `"fractional"`) for
+tool-vs-gold scoring:
+
+1. Empty / `NA` / `.` gold → skip (V, D, and J).
+2. Present gold + empty pred → `0` (false negative).
+3. Multi-call pred: matching token → `1/n`; full-string match → `1`.
+
+Helpers: [`fractional_call_score`](@ref), [`call_metrics`](@ref),
+[`primary_allele_call`](@ref). Also: exact / allele / gene / primary / span IoU.
+[`default_metrics`](@ref) leads with fractional.
+
 ## Data
 
 Describe cohorts with [`DatasetManifest`](@ref): [`SimSource`](@ref) (IgSim gold)

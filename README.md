@@ -10,6 +10,20 @@ Extensible V(D)J benchmark harness: pluggable annotators, metrics, and
 species-agnostic panels. Library-first (`run_suite`) for embedding from
 IgFormer; optional standalone script for full reports.
 
+### Canonical call metrics
+
+Prefer **`FractionalCallAccuracy`** (name `"fractional"`) for tool-vs-gold:
+
+1. Empty / `NA` / `.` **gold** → skip (not in the denominator) on V, D, and J.
+2. Present gold + empty **pred** → score `0` (false negative).
+3. Multi-call pred: any matching token → **`1/n`**; full-string match → `1`
+   (keeps IMGT dual names that contain `/`).
+
+Helpers: `fractional_call_score`, `call_metrics`, `primary_allele_call`.
+Also available: `ExactCallAccuracy`, `AlleleCallAccuracy` (any-token → full
+point), `GeneCallAccuracy`, `PrimaryCallAccuracy`, `SpanIoU`.
+`default_metrics()` leads with fractional.
+
 **Built-in tool:** [IgBLAST.jl](https://github.com/mashu/IgBLAST.jl) via a Package
 Extension (optional at load time). SwiftIG (CLI) and IgFormer plug in with **no**
 package dependency.
