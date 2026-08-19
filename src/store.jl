@@ -1,6 +1,6 @@
 # store.jl — Dashboard-ready run artifacts (JSON / JSONL / AIRR).
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 
 """Persistence backend for a single suite run."""
 abstract type AbstractRunStore end

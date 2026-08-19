@@ -23,33 +23,35 @@ result = run_suite(suite;
                    mode = DiagnosticMode(max_sequences = 256),
                    store = DirectoryRunStore("runs/diagnostic/1000"),
                    step = 1000, tags = (; epoch = 3))
-# result.metrics is in-memory for logging; store optional (nothing / NullRunStore)
 ```
 
-## Canonical call metrics
+## Published metrics
 
-Prefer [`FractionalCallAccuracy`](@ref) (metric name `"fractional"`) for
-tool-vs-gold scoring:
+[`AlleleAccuracy`](@ref) (metric name `"allele"`) is the only call score:
 
 1. Empty / `NA` / `.` gold → skip (V, D, and J).
-2. Present gold + empty pred → `0` (false negative).
-3. Multi-call pred: matching token → `1/n`; full-string match → `1`.
+2. Present gold + empty pred → `0`.
+3. Full-string match → `1`. Else comma-split (slash is part of an IMGT dual
+   name); any matching token → `1 / n_pred`.
 
-Helpers: [`fractional_call_score`](@ref), [`call_metrics`](@ref),
-[`primary_allele_call`](@ref). Also: exact / allele / gene / primary / span IoU.
-[`default_metrics`](@ref) leads with fractional.
+Segmentation (independent of allele): [`SpanIoU`](@ref), [`SpanExact`](@ref),
+[`SpanStart`](@ref), [`SpanStop`](@ref). Empty gold span skipped; missing pred
+vs present gold = 0.
 
-## Data
+[`default_metrics`](@ref) is allele + those four span metrics.
 
-Describe cohorts with [`DatasetManifest`](@ref): [`SimSource`](@ref) (IgSim gold)
-and [`AirrSource`](@ref) (real AIRR). `species` is a free string — never hardcoded.
+Panel ids: `{source}__assign={db_label}__sim={all|minus_holdout|holdout_only}`.
+The assign FASTA is what tools receive (`assign=`). `sim_set` is which alleles
+IgSim drew from the source FASTA. They can differ: e.g. sim `minus_holdout`
+with assign = train FASTA (matched closed) vs assign = full FASTA (seen
+reads, extra alleles in the gallery).
 
-Pass `cache = PanelCache("cache/run")` to [`run_suite`](@ref) so diagnostic steps
-reuse the same frozen sequences.
+AIRR gold is the file's V/D/J calls after checking every token is a name in
+the gold FASTA. A TSV annotated with a different database errors on load.
 
 ## Modes
 
 | Mode | Use |
 |------|-----|
-| [`DiagnosticMode`](@ref) | Mid-training: small N, light timing, predictions off by default |
-| [`FullReportMode`](@ref) | End report / CI: full N, timings, predictions + `summary.md` |
+| [`DiagnosticMode`](@ref) | Mid-training: small N, untimed by default, predictions off |
+| [`FullReportMode`](@ref) | End report / CI: full N, one timed annotate pass, predictions + `summary.md` |

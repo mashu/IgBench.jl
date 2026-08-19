@@ -1,10 +1,11 @@
-# match.jl — Allele / gene call matching (AIRR multi-call aware).
+# match.jl — Allele scoring and span geometry (AIRR multi-call aware).
 #
-# Canonical tool-vs-gold scoring rules (see also [`FractionalCallAccuracy`](@ref)):
+# Canonical tool-vs-gold allele score ([`AlleleAccuracy`](@ref) / [`allele_score`](@ref)):
 # 1. Empty / missing / `NA` / `.` **gold** → skip (not in the denominator).
 # 2. Non-empty gold + empty **pred** → score `0` (false negative).
-# 3. Multi-allelic pred: any token matching gold → `1/n` (`FractionalCallAccuracy`);
-#    full-string match → `1` (preserves IMGT dual names containing `/`).
+# 3. Full-string equality → `1` (identical multi-calls recapitulate).
+# 4. Else split on commas only (slash is part of an IMGT dual name);
+#    any pred token equal to any gold token → `1 / n_pred`.
 
 """True for blank, `NA`, or `.` call fields."""
 function call_field_empty(field::AbstractString)
@@ -14,12 +15,16 @@ end
 
 call_field_empty(::Missing) = true
 
-"""Split IgBLAST-style multi-calls on `/` and `,`."""
+"""
+Split IgBLAST-style multi-calls on commas only.
+
+Slash is part of one allele identifier (e.g. `IGHV3-23*01/IGHV3-23D*01`).
+"""
 function parse_allele_calls(field::AbstractString)
     s = strip(String(field))
     (isempty(s) || s == "NA" || s == ".") && return String[]
     out = String[]
-    for p in split(s, r"[/,]")
+    for p in split(s, ',')
         t = String(strip(p))
         isempty(t) || push!(out, t)
     end
@@ -27,10 +32,12 @@ function parse_allele_calls(field::AbstractString)
     out
 end
 
-"""Strip personalized `_S####` suffixes."""
+parse_allele_calls(::Missing) = String[]
+
+"""Strip personalized `_S####` suffixes (analysis helper; not used in allele score)."""
 normalize_allele(call::AbstractString) = replace(String(strip(call)), r"_S\d+$" => "")
 
-"""Gene locus before `*` (after `_S*` strip)."""
+"""Gene locus before `*` (after `_S*` strip). Analysis helper; not a bench metric."""
 function allele_gene(call::AbstractString)
     s = normalize_allele(call)
     i = findfirst('*', s)
@@ -52,49 +59,14 @@ end
 
 primary_allele_call(::Missing) = ""
 
-"""Exact string equality (no splitting / normalization)."""
-exact_call_match(pred::AbstractString, gold::AbstractString) =
-    String(pred) == String(gold)
-
-exact_call_match(::Missing, gold::AbstractString) = exact_call_match("", gold)
-exact_call_match(pred::AbstractString, ::Missing) = exact_call_match(pred, "")
-exact_call_match(::Missing, ::Missing) = true
-
-"""True if any pred token matches any gold token at allele level (full point)."""
-function allele_call_match(pred::AbstractString, gold::AbstractString)
-    golds = parse_allele_calls(gold)
-    preds = parse_allele_calls(pred)
-    isempty(golds) && return isempty(preds)
-    isempty(preds) && return false
-    gset = Set(normalize_allele(g) for g in golds)
-    any(normalize_allele(p) in gset for p in preds)
-end
-
-allele_call_match(::Missing, gold::AbstractString) = allele_call_match("", gold)
-allele_call_match(pred::AbstractString, ::Missing) = allele_call_match(pred, "")
-allele_call_match(::Missing, ::Missing) = true
-
-"""True if any pred token matches any gold token at gene level."""
-function gene_call_match(pred::AbstractString, gold::AbstractString)
-    golds = parse_allele_calls(gold)
-    preds = parse_allele_calls(pred)
-    isempty(golds) && return isempty(preds)
-    isempty(preds) && return false
-    gset = Set(allele_gene(g) for g in golds)
-    any(allele_gene(p) in gset for p in preds)
-end
-
-gene_call_match(::Missing, gold::AbstractString) = gene_call_match("", gold)
-gene_call_match(pred::AbstractString, ::Missing) = gene_call_match(pred, "")
-gene_call_match(::Missing, ::Missing) = true
-
 """
-Fractional multi-call score in `[0, 1]`.
+Allele score in `[0, 1]`.
 
 Empty gold → `0` (caller should skip). Empty pred → `0`. Full-string match → `1`.
-Else if any `,`/`/`-split pred token matches any gold token → `1/n`.
+Else if any comma-split pred token equals any gold token → `1 / n_pred`.
+Does not strip `_S` suffixes and does not split on `/`.
 """
-function fractional_call_score(pred::AbstractString, gold::AbstractString)
+function allele_score(pred::AbstractString, gold::AbstractString)
     call_field_empty(gold) && return 0.0
     call_field_empty(pred) && return 0.0
     p = strip(String(pred))
@@ -109,22 +81,40 @@ function fractional_call_score(pred::AbstractString, gold::AbstractString)
     1.0 / length(preds)
 end
 
-fractional_call_score(pred::Missing, gold::AbstractString) =
-    fractional_call_score("", gold)
-fractional_call_score(pred::AbstractString, gold::Missing) =
-    fractional_call_score(pred, "")
-fractional_call_score(::Missing, ::Missing) = 0.0
+allele_score(pred::Missing, gold::AbstractString) = allele_score("", gold)
+allele_score(pred::AbstractString, gold::Missing) = allele_score(pred, "")
+allele_score(::Missing, ::Missing) = 0.0
 
-"""First-comma pred equals full gold string (ablation / legacy)."""
-function primary_call_match(pred::AbstractString, gold::AbstractString)
-    call_field_empty(gold) && return false
-    primary_allele_call(pred) == strip(String(gold))
+"""
+Intersection-over-union of pred vs gold (1-based inclusive).
+
+Empty **gold** → `NaN` (caller skips). Empty **pred** vs present gold → `0`.
+"""
+function span_iou(pred::Span, gold::Span)
+    isempty(gold) && return NaN
+    isempty(pred) && return 0.0
+    inter = max(0, min(pred.stop, gold.stop) - max(pred.start, gold.start) + 1)
+    union = length(pred) + length(gold) - inter
+    union == 0 ? 0.0 : inter / union
 end
 
-"""Intersection-over-union of two spans; `NaN` if either empty."""
-function span_iou(a::Span, b::Span)
-    (isempty(a) || isempty(b)) && return NaN
-    inter = max(0, min(a.stop, b.stop) - max(a.start, b.start) + 1)
-    union = length(a) + length(b) - inter
-    union == 0 ? NaN : inter / union
+"""1 iff pred start and stop both equal gold. Empty gold → `NaN`; empty pred → `0`."""
+function span_exact(pred::Span, gold::Span)
+    isempty(gold) && return NaN
+    isempty(pred) && return 0.0
+    (pred.start == gold.start && pred.stop == gold.stop) ? 1.0 : 0.0
+end
+
+"""1 iff pred start equals gold. Empty gold → `NaN`; empty pred → `0`."""
+function span_start(pred::Span, gold::Span)
+    isempty(gold) && return NaN
+    isempty(pred) && return 0.0
+    pred.start == gold.start ? 1.0 : 0.0
+end
+
+"""1 iff pred stop equals gold. Empty gold → `NaN`; empty pred → `0`."""
+function span_stop(pred::Span, gold::Span)
+    isempty(gold) && return NaN
+    isempty(pred) && return 0.0
+    pred.stop == gold.stop ? 1.0 : 0.0
 end

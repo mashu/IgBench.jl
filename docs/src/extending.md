@@ -8,7 +8,7 @@ IgBench does **not** depend on IgFormer. In the IgFormer project:
 using IgBench
 
 igf = CallableAnnotator("igformer") do seqs, ids, germline
-    # load ckpt / gallery from germline paths, annotate, map to CallRecord
+    # annotate against `germline` (assign FASTA paths); return Vector{CallRecord}
     CallRecord[]  # replace
 end
 

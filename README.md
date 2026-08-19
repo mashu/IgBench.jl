@@ -1,7 +1,7 @@
 # IgBench.jl
 
 [![Build Status](https://github.com/mashu/IgBench.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/mashu/IgBench.jl/actions/workflows/CI.yml?query=branch%3Amain)
-[![Coverage](https://codecov.io/gh/mashu/IgBench.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/mashu/IgBench.jl)
+[![Coverage](https://codecov.io/gh/mashu/IgBench.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/mashu/IgBench.jl/badge.svg)
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://mashu.github.io/IgBench.jl/stable/)
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://mashu.github.io/IgBench.jl/dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -10,19 +10,32 @@ Extensible V(D)J benchmark harness: pluggable annotators, metrics, and
 species-agnostic panels. Library-first (`run_suite`) for embedding from
 IgFormer; optional standalone script for full reports.
 
-### Canonical call metrics
+### Published metrics
 
-Prefer **`FractionalCallAccuracy`** (name `"fractional"`) for tool-vs-gold:
+**Allele calling** is [`AlleleAccuracy`](@ref) (name `"allele"`):
 
 1. Empty / `NA` / `.` **gold** → skip (not in the denominator) on V, D, and J.
 2. Present gold + empty **pred** → score `0` (false negative).
-3. Multi-call pred: any matching token → **`1/n`**; full-string match → `1`
-   (keeps IMGT dual names that contain `/`).
+3. Full-string match → `1`. Else split on **commas only** (slash is part of an
+   IMGT dual name such as `IGHV3-23*01/IGHV3-23D*01`); any pred token equal to
+   any gold token → **`1 / n_pred`**.
 
-Helpers: `fractional_call_score`, `call_metrics`, `primary_allele_call`.
-Also available: `ExactCallAccuracy`, `AlleleCallAccuracy` (any-token → full
-point), `GeneCallAccuracy`, `PrimaryCallAccuracy`, `SpanIoU`.
-`default_metrics()` leads with fractional.
+**Segmentation** is independent of the allele score:
+
+| name | meaning |
+|---|---|
+| `span_iou` | intersection over union |
+| `span_exact` | start **and** stop equal gold |
+| `span_start` | start equals gold |
+| `span_stop` | stop equals gold |
+
+Empty gold span is skipped; missing pred vs present gold scores `0`.
+
+**Timing** is wall-clock seconds of the **scored** annotate pass, plus `n` and
+reads/s. Tools are not annotated twice.
+
+Panel ids name the **assign FASTA** and, for IgSim, the **sim allele-set**:
+`{source}__assign={db}__sim={all|minus_holdout|holdout_only}`.
 
 **Built-in tool:** [IgBLAST.jl](https://github.com/mashu/IgBLAST.jl) via a Package
 Extension (optional at load time). SwiftIG (CLI) and IgFormer plug in with **no**
@@ -41,14 +54,14 @@ Pkg.add(url="https://github.com/mashu/IgBench.jl")
 using IgBench, IgSim
 
 gp = GermlinePaths(; v="V.fasta", d="D.fasta", j="J.fasta")
-src = SimSource(; id="sim", germline=gp, species="human", n=256, seed=1,
-                holdout_v=["IGHV1-69*01"])
+src = SimSource(; id="sim", db_label="KI+1KGP", germline=gp, species="human",
+                n=256, seed=1, holdout_v=["IGHV1-69*01"])
 man = DatasetManifest("demo"; sim=[src], airr=AirrSource[])
 
 igblast = IgBLASTAnnotator(; organism_param="human")
-# IgFormer (or any model) — no IgBench → IgFormer dependency:
 model = CallableAnnotator("igformer") do seqs, ids, germline
-    # ... annotate_many → Vector{CallRecord}
+    # annotate against germline (assign FASTA); return Vector{CallRecord}
+    CallRecord[]
 end
 
 suite = suite_from_manifest(man, [igblast, model])

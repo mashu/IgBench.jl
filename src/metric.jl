@@ -1,7 +1,7 @@
 # metric.jl — Pluggable accuracy / agreement metrics.
 #
-# Prefer [`FractionalCallAccuracy`](@ref) for tool-vs-gold benches: fair `1/n`
-# credit on multi-calls, empty-gold rows skipped, empty pred = false negative.
+# Published tool-vs-gold scores: [`AlleleAccuracy`](@ref) plus the four span
+# metrics. Empty gold skipped; empty pred vs present gold = 0.
 
 """Metric comparing two aligned [`CallRecord`](@ref) vectors."""
 abstract type AbstractMetric end
@@ -54,57 +54,34 @@ function call_records(v_calls::AbstractVector, d_calls::AbstractVector,
 end
 
 """
-**Standard** tool-vs-gold metric: fractional `1/n` multi-call credit.
+**Standard** tool-vs-gold allele metric: `1/n` on comma-separated ties.
 
-See [`fractional_call_score`](@ref). Empty gold skipped; empty pred = 0.
+See [`allele_score`](@ref). Empty gold skipped; empty pred = 0.
 """
-struct FractionalCallAccuracy <: AbstractMetric end
-metric_name(::FractionalCallAccuracy) = "fractional"
-evaluate(::FractionalCallAccuracy, pred, ref) =
-    locus_scores(pred, ref, fractional_call_score)
+struct AlleleAccuracy <: AbstractMetric end
+metric_name(::AlleleAccuracy) = "allele"
+evaluate(::AlleleAccuracy, pred, ref) = locus_scores(pred, ref, allele_score)
 
-"""Full-string exact match (after empty-gold skip)."""
-struct ExactCallAccuracy <: AbstractMetric end
-metric_name(::ExactCallAccuracy) = "exact"
-evaluate(::ExactCallAccuracy, pred, ref) = locus_scores(pred, ref, exact_call_match)
-
-"""Any-token allele match → full point (lenient multi-call; not `1/n`)."""
-struct AlleleCallAccuracy <: AbstractMetric end
-metric_name(::AlleleCallAccuracy) = "allele"
-evaluate(::AlleleCallAccuracy, pred, ref) = locus_scores(pred, ref, allele_call_match)
-
-"""Gene-level match."""
-struct GeneCallAccuracy <: AbstractMetric end
-metric_name(::GeneCallAccuracy) = "gene"
-evaluate(::GeneCallAccuracy, pred, ref) = locus_scores(pred, ref, gene_call_match)
-
-"""First comma-separated call vs full gold (ablation)."""
-struct PrimaryCallAccuracy <: AbstractMetric end
-metric_name(::PrimaryCallAccuracy) = "primary"
-evaluate(::PrimaryCallAccuracy, pred, ref) = locus_scores(pred, ref, primary_call_match)
-
-"""Mean span IoU per locus; rows with empty either-side span skipped."""
-struct SpanIoU <: AbstractMetric end
-metric_name(::SpanIoU) = "span_iou"
-
-function evaluate(::SpanIoU, pred::AbstractVector{CallRecord},
-                  ref::AbstractVector{CallRecord})
+"""Mean of a span score_fn per locus; empty gold spans skipped."""
+function locus_span_scores(pred::AbstractVector{CallRecord},
+                           ref::AbstractVector{CallRecord},
+                           score_fn)
     length(pred) == length(ref) || error("pred/ref length mismatch")
-    function mean_iou(getp, getr)
+    function mean_score(getp, getr)
         s = 0.0
         n = 0
         for i in eachindex(pred)
-            u = span_iou(getp(pred[i]), getr(ref[i]))
-            isnan(u) && continue
-            s += u
+            gold = getr(ref[i])
+            isempty(gold) && continue
+            s += Float64(score_fn(getp(pred[i]), gold))
             n += 1
         end
         n == 0 ? NaN : s / n
     end
     MetricValue(
-        v = mean_iou(r -> r.v_span, r -> r.v_span),
-        d = mean_iou(r -> r.d_span, r -> r.d_span),
-        j = mean_iou(r -> r.j_span, r -> r.j_span),
+        v = mean_score(r -> r.v_span, r -> r.v_span),
+        d = mean_score(r -> r.d_span, r -> r.d_span),
+        j = mean_score(r -> r.j_span, r -> r.j_span),
         n = length(pred),
         d_n = count(r -> !isempty(r.d_span), ref),
         v_n = count(r -> !isempty(r.v_span), ref),
@@ -112,29 +89,44 @@ function evaluate(::SpanIoU, pred::AbstractVector{CallRecord},
     )
 end
 
-"""
-Default metric set for tool vs gold / tool vs tool.
+"""Mean span IoU per locus. Missing pred vs present gold = 0."""
+struct SpanIoU <: AbstractMetric end
+metric_name(::SpanIoU) = "span_iou"
+evaluate(::SpanIoU, pred, ref) = locus_span_scores(pred, ref, span_iou)
 
-Leads with [`FractionalCallAccuracy`](@ref) (canonical bench score).
-"""
-default_metrics() = AbstractMetric[FractionalCallAccuracy(), ExactCallAccuracy(),
-                                   AlleleCallAccuracy(), GeneCallAccuracy(),
-                                   PrimaryCallAccuracy(), SpanIoU()]
+"""Fraction of reads where start and stop both equal gold."""
+struct SpanExact <: AbstractMetric end
+metric_name(::SpanExact) = "span_exact"
+evaluate(::SpanExact, pred, ref) = locus_span_scores(pred, ref, span_exact)
 
-agreement_metrics() = AbstractMetric[FractionalCallAccuracy(), AlleleCallAccuracy(),
-                                     GeneCallAccuracy()]
+"""Fraction of reads where start equals gold."""
+struct SpanStart <: AbstractMetric end
+metric_name(::SpanStart) = "span_start"
+evaluate(::SpanStart, pred, ref) = locus_span_scores(pred, ref, span_start)
+
+"""Fraction of reads where stop equals gold."""
+struct SpanStop <: AbstractMetric end
+metric_name(::SpanStop) = "span_stop"
+evaluate(::SpanStop, pred, ref) = locus_span_scores(pred, ref, span_stop)
+
+"""Default metric set: allele score plus independent span metrics."""
+default_metrics() = AbstractMetric[AlleleAccuracy(), SpanIoU(), SpanExact(),
+                                   SpanStart(), SpanStop()]
+
+"""Tool-vs-tool: same metric set (allele + spans)."""
+agreement_metrics() = default_metrics()
 
 """
     call_metrics(v_pred, d_pred, j_pred, v_gold, d_gold, j_gold) -> MetricValue
 
-Convenience wrapper: string columns → [`FractionalCallAccuracy`](@ref).
+Convenience wrapper: string columns → [`AlleleAccuracy`](@ref).
 """
 function call_metrics(v_pred::AbstractVector, d_pred::AbstractVector,
                       j_pred::AbstractVector,
                       v_gold::AbstractVector, d_gold::AbstractVector,
                       j_gold::AbstractVector)
     length(v_pred) == length(v_gold) || error("pred/gold length mismatch")
-    evaluate(FractionalCallAccuracy(),
+    evaluate(AlleleAccuracy(),
              call_records(v_pred, d_pred, j_pred; prefix = "p"),
              call_records(v_gold, d_gold, j_gold; prefix = "g"))
 end

@@ -14,7 +14,7 @@ DiagnosticMode(; max_sequences::Integer = 512,
                timing_repeats::Integer = 0) =
     DiagnosticMode(Int(max_sequences), store_predictions, Int(timing_repeats))
 
-"""End-of-train / standalone report: full N, timings, predictions on."""
+"""End-of-train / standalone report: full N, one timed pass, predictions on."""
 struct FullReportMode <: RunMode
     store_predictions::Bool
     timing_warmup::Int
@@ -22,8 +22,8 @@ struct FullReportMode <: RunMode
 end
 
 FullReportMode(; store_predictions::Bool = true,
-               timing_warmup::Integer = 1,
-               timing_repeats::Integer = 3) =
+               timing_warmup::Integer = 0,
+               timing_repeats::Integer = 1) =
     FullReportMode(store_predictions, Int(timing_warmup), Int(timing_repeats))
 
 mode_name(::DiagnosticMode) = "diagnostic"

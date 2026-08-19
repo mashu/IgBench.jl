@@ -51,10 +51,11 @@ function annotate(a::SwiftIGAnnotator, sequences, ids, germline::GermlinePaths; 
                 println(io, seq)
             end
         end
-        cmd = `$bin -query $query -germline_db_V $(germline.v) -germline_db_D $(germline.d) -germline_db_J $(germline.j) -out $out_tsv -outfmt 19 -num_threads $(a.threads)`
+        cmd = `$bin`
         for arg in a.extra_args
             cmd = `$cmd $arg`
         end
+        cmd = `$cmd -query $query -germline_db_V $(germline.v) -germline_db_D $(germline.d) -germline_db_J $(germline.j) -out $out_tsv -outfmt 19 -num_threads $(a.threads)`
         run(cmd)
         parsed = read_airr_calls(out_tsv; max_rows = nothing, skip_nonproductive = false)
         by_id = Dict(r.sequence_id => r for r in parsed)

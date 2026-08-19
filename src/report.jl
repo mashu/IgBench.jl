@@ -19,13 +19,15 @@ function format_summary(suite_name::AbstractString,
     println(io)
     println(io, "## Timing")
     println(io)
-    println(io, "| panel | tool | seq/s | n |")
-    println(io, "|---|---|---:|---:|")
+    println(io, "| panel | tool | wall_s | n | seq/s |")
+    println(io, "|---|---|---:|---:|---:|")
     for t in timing
+        wall = Float64(t["wall_s"])
         sps = t["seq_per_s"]
+        wall_s = isnan(wall) ? "—" : string(round(wall; digits = 3))
         sps_s = isnan(Float64(sps)) ? "—" : string(round(Float64(sps); digits = 1))
-        println(io, "| ", t["panel"], " | ", t["tool"], " | ", sps_s, " | ",
-                t["n_sequences"], " |")
+        println(io, "| ", t["panel"], " | ", t["tool"], " | ", wall_s, " | ",
+                t["n_sequences"], " | ", sps_s, " |")
     end
     String(take!(io))
 end

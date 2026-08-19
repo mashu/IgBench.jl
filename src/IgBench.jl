@@ -38,19 +38,19 @@ export
     CallableAnnotator, FakeAnnotator,
     IgBLASTAnnotator, SwiftIGAnnotator,
     AbstractMetric, metric_name, evaluate,
-    ExactCallAccuracy, AlleleCallAccuracy, GeneCallAccuracy,
-    FractionalCallAccuracy, PrimaryCallAccuracy, SpanIoU,
+    AlleleAccuracy, SpanIoU, SpanExact, SpanStart, SpanStop,
     default_metrics, agreement_metrics, call_metrics, call_records,
-    TimingSpec, TimingResult, time_annotate,
+    TimingSpec, TimingResult, time_annotate, annotate_timed,
     RunMode, DiagnosticMode, FullReportMode, mode_name,
     AbstractPanel, PanelData, SimGoldPanel, AirrPanel, load_panel,
-    PanelCache, load_panel_cached,
+    PanelCache, load_panel_cached, SIM_SETS,
     AbstractRunStore, DirectoryRunStore, NullRunStore, SCHEMA_VERSION,
     CompareSpec, BenchSuite, BenchResult, run_suite,
     default_compares, suite_from_manifest,
     read_airr_calls, write_airr_calls,
     parse_allele_calls, normalize_allele, allele_gene, call_field_empty,
-    primary_allele_call, fractional_call_score, primary_call_match,
-    exact_call_match, allele_call_match, gene_call_match, span_iou
+    primary_allele_call, allele_score,
+    span_iou, span_exact, span_start, span_stop,
+    germline_allele_names, validate_gold_calls!
 
 end # module
