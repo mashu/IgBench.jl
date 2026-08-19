@@ -7,12 +7,16 @@ using IgBLAST
 function IgBench.igblast_annotator_impl(;
                                         name::AbstractString = "igblast",
                                         organism_param::AbstractString = "human",
+                                        num_threads::Integer = 8,
                                         additional_params::Dict{String,String} = Dict{String,String}(),
                                         kwargs...)
     params = merge(Dict("organism" => String(organism_param),
                         "domain_system" => "imgt"),
                    additional_params)
-    runner = IgBLAST.IgBLASTRunner(IgBLAST.IgBLASTn; additional_params = params, kwargs...)
+    runner = IgBLAST.IgBLASTRunner(IgBLAST.IgBLASTn;
+                                   additional_params = params,
+                                   num_threads,
+                                   kwargs...)
     IgBench.IgBLASTAnnotator(String(name), runner, String(organism_param))
 end
 

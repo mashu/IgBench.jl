@@ -28,6 +28,7 @@ include("mode.jl")
 include("panel.jl")
 include("store.jl")
 include("report.jl")
+include("report_html.jl")
 include("suite.jl")
 include("defaults.jl")
 

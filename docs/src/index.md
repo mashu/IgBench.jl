@@ -54,4 +54,4 @@ the gold FASTA. A TSV annotated with a different database errors on load.
 | Mode | Use |
 |------|-----|
 | [`DiagnosticMode`](@ref) | Mid-training: small N, untimed by default, predictions off |
-| [`FullReportMode`](@ref) | End report / CI: full N, one timed annotate pass, predictions + `summary.md` |
+| [`FullReportMode`](@ref) | End report / CI: full N, one timed annotate pass, predictions + `summary.md` + `report.html` |

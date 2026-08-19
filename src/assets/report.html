@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>IgBench report</title>
+  <style>
+    :root {
+      --bg: #111111;
+      --fg: #f5f5f4;
+      --muted: #a1a1aa;
+      --line: #27272a;
+      --grid: #1f1f22;
+      --surface: #18181b;
+      --th: #1c1c1f;
+    }
+    * { box-sizing: border-box; }
+    html, body { background: var(--bg); }
+    body {
+      margin: 0;
+      color: var(--fg);
+      font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    header {
+      padding: 1.75rem 2.25rem 0.25rem;
+      max-width: 980px;
+      margin: 0 auto;
+    }
+    header .kicker {
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    header h1 {
+      margin: 0.35rem 0 0.3rem;
+      font-size: 1.15rem;
+      font-weight: 500;
+      color: var(--muted);
+    }
+    header .meta { color: #71717a; font-size: 12px; }
+    main { padding: 0.5rem 2.25rem 3.5rem; max-width: 980px; margin: 0 auto; }
+    .hero {
+      padding: 1.75rem 0 2.5rem;
+      border-bottom: 1px solid var(--line);
+    }
+    .hero h2 {
+      margin: 0;
+      font-size: 1.45rem;
+      font-weight: 650;
+      letter-spacing: -0.03em;
+      line-height: 1.25;
+    }
+    .hero .blurb {
+      margin: 0.55rem 0 0;
+      color: var(--muted);
+      font-size: 13.5px;
+      max-width: 42rem;
+      line-height: 1.55;
+    }
+    .hero-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      margin-bottom: 0.4rem;
+    }
+    .kpis {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2rem 3.25rem;
+      margin: 1.35rem 0 0.4rem;
+    }
+    .kpi .val {
+      font-size: 2.15rem;
+      font-weight: 650;
+      letter-spacing: -0.04em;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.05;
+    }
+    .kpi .val.good { color: #4ade80; }
+    .kpi .lab {
+      color: var(--muted);
+      font-size: 12.5px;
+      margin-top: 0.28rem;
+    }
+    .chart { width: 100%; margin-top: 0.5rem; }
+    .chart svg { width: 100%; height: auto; display: block; }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.55rem 1.4rem;
+      margin-top: 0.85rem;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .legend i {
+      display: inline-block;
+      width: 0.55rem;
+      height: 0.55rem;
+      border-radius: 50%;
+      margin-right: 0.4rem;
+      vertical-align: 0.05rem;
+    }
+    .pick {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    select {
+      font: 13px/1.4 inherit;
+      color: var(--fg);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      padding: 0.35rem 0.5rem;
+      min-width: 12rem;
+    }
+    .plain { margin-top: 2.25rem; }
+    .plain h2 {
+      font-size: 0.95rem;
+      font-weight: 650;
+      margin: 0 0 0.7rem;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .row-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.7rem;
+    }
+    .row-head h2 { margin: 0; }
+    .toggles { display: flex; border: 1px solid var(--line); }
+    .toggles button {
+      background: transparent;
+      color: var(--fg);
+      border: 0;
+      border-right: 1px solid var(--line);
+      padding: 0.3rem 0.8rem;
+      font: inherit;
+      cursor: pointer;
+    }
+    .toggles button:last-child { border-right: 0; }
+    .toggles button[aria-pressed="true"] {
+      background: #f5f5f4;
+      color: #111;
+    }
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem 1.1rem;
+      margin-bottom: 0.7rem;
+    }
+    .filters label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .scroll { overflow-x: auto; border: 1px solid var(--line); background: var(--surface); }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    th, td {
+      padding: 0.45rem 0.7rem;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      white-space: nowrap;
+    }
+    th { background: var(--th); font-weight: 600; position: sticky; top: 0; }
+    th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    th.sort { cursor: pointer; }
+    th.sort[data-dir="asc"]::after { content: " \2191"; }
+    th.sort[data-dir="desc"]::after { content: " \2193"; }
+    td.panel { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+    .score { position: relative; min-width: 4.5rem; }
+    .score .bar { position: absolute; inset: 0 auto 0 0; opacity: 0.4; }
+    .score .val { position: relative; padding: 0 0.35rem; }
+    .empty { color: var(--muted); }
+    #tip {
+      position: fixed;
+      z-index: 30;
+      background: #0a0a0a;
+      color: var(--fg);
+      border: 1px solid #3f3f46;
+      padding: 0.55rem 0.75rem;
+      font-size: 12px;
+      pointer-events: none;
+      min-width: 9.5rem;
+      line-height: 1.45;
+    }
+    #tip strong { display: block; margin-bottom: 0.3rem; font-size: 13px; }
+    #tip .row { color: var(--muted); display: flex; justify-content: space-between; gap: 1.25rem; }
+    #tip .row b { color: var(--fg); font-weight: 550; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="kicker">IgBench</div>
+    <h1 id="suite">report</h1>
+    <div class="meta" id="meta"></div>
+  </header>
+  <main>
+    <section id="allele-chart" class="hero" hidden>
+      <div class="hero-top">
+        <div>
+          <h2 id="allele-title">Allele accuracy vs gold</h2>
+          <p class="blurb" id="allele-blurb"></p>
+        </div>
+        <label class="pick" id="panel-pick" hidden>panel
+          <select id="chart-panel"></select>
+        </label>
+      </div>
+      <div class="chart" id="allele-plot"></div>
+      <div class="legend" id="allele-legend"></div>
+      <div class="kpis" id="allele-kpis"></div>
+    </section>
+    <section id="timing-chart" class="hero" hidden>
+      <div class="hero-top">
+        <div>
+          <h2>Wall-clock runtime</h2>
+          <p class="blurb" id="timing-blurb">End-to-end wall-clock seconds of the scored annotate pass. Each tool is annotated once per panel.</p>
+        </div>
+      </div>
+      <div class="kpis" id="timing-kpis"></div>
+      <div class="chart" id="timing-plot"></div>
+      <div class="legend" id="timing-legend"></div>
+    </section>
+    <section id="headline" class="plain" hidden>
+      <div class="row-head">
+        <h2>Allele vs gold</h2>
+        <div class="toggles" role="group" aria-label="Locus">
+          <button type="button" data-locus="v" aria-pressed="true">V</button>
+          <button type="button" data-locus="d" aria-pressed="false">D</button>
+          <button type="button" data-locus="j" aria-pressed="false">J</button>
+        </div>
+      </div>
+      <div class="scroll" id="headline-table"></div>
+    </section>
+    <section class="plain">
+      <h2>Metrics</h2>
+      <div class="filters" id="filters"></div>
+      <div class="scroll" id="metrics-table"></div>
+    </section>
+    <section class="plain">
+      <h2>Timing detail</h2>
+      <div class="scroll" id="timing-table"></div>
+    </section>
+  </main>
+  <div id="tip" hidden></div>
+  <script>
+    window.IGBENCH = __IGBENCH_DATA__;
+  </script>
+  <script>
+    (function () {
+      const NS = "http://www.w3.org/2000/svg";
+      const PALETTE = ["#00CC96", "#19D3F3", "#AB63FA", "#FFA15A", "#FF6692", "#FECB52", "#636EFA"];
+      const data = window.IGBENCH;
+      if (!data) return;
+
+      const metrics = data.metrics || [];
+      const timing = data.timing || [];
+      const tools = data.tools || unique(metrics.map(function (r) { return r.pred; }));
+      const colorOf = {};
+      tools.forEach(function (t, i) { colorOf[t] = PALETTE[i % PALETTE.length]; });
+
+      document.getElementById("suite").textContent = data.suite || "IgBench report";
+      document.title = (data.suite ? data.suite + " — " : "") + "IgBench report";
+      document.getElementById("meta").textContent = metaLine(data);
+
+      const tip = document.getElementById("tip");
+      const headlineRows = metrics.filter(function (r) {
+        return r.metric === "allele" && r.ref === ":gold";
+      });
+      const panels = data.panels
+        ? Object.keys(data.panels)
+        : unique(headlineRows.map(function (r) { return r.panel; }));
+
+      let chartPanel = panels[0] || "";
+      let locus = "v";
+
+      if (panels.length > 1) {
+        const pick = document.getElementById("panel-pick");
+        pick.hidden = false;
+        const sel = document.getElementById("chart-panel");
+        panels.forEach(function (p) {
+          const opt = document.createElement("option");
+          opt.value = p;
+          opt.textContent = p;
+          sel.appendChild(opt);
+        });
+        sel.value = chartPanel;
+        sel.addEventListener("change", function () {
+          chartPanel = sel.value;
+          renderAlleleChart();
+          renderTimingChart();
+        });
+      }
+
+      if (headlineRows.length) {
+        document.getElementById("allele-chart").hidden = false;
+        document.getElementById("headline").hidden = false;
+        renderAlleleChart();
+        const buttons = document.querySelectorAll("#headline [data-locus]");
+        buttons.forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            locus = btn.getAttribute("data-locus");
+            buttons.forEach(function (b) {
+              b.setAttribute("aria-pressed", b === btn ? "true" : "false");
+            });
+            renderHeadline();
+          });
+        });
+        renderHeadline();
+      }
+
+      if (timing.some(function (t) { return typeof t.wall_s === "number" && isFinite(t.wall_s); })) {
+        document.getElementById("timing-chart").hidden = false;
+        renderTimingChart();
+      }
+
+      const filterKeys = ["panel", "metric", "pred", "ref"];
+      const filterState = {};
+      const filtersEl = document.getElementById("filters");
+      filterKeys.forEach(function (key) {
+        const label = document.createElement("label");
+        label.textContent = key;
+        const sel = document.createElement("select");
+        const all = document.createElement("option");
+        all.value = "";
+        all.textContent = "all";
+        sel.appendChild(all);
+        unique(metrics.map(function (r) { return r[key]; })).forEach(function (v) {
+          if (v == null || v === "") return;
+          const opt = document.createElement("option");
+          opt.value = String(v);
+          opt.textContent = String(v);
+          sel.appendChild(opt);
+        });
+        sel.addEventListener("change", function () {
+          filterState[key] = sel.value;
+          renderMetrics();
+        });
+        label.appendChild(sel);
+        filtersEl.appendChild(label);
+        filterState[key] = "";
+      });
+
+      const metricSort = { key: "panel", dir: 1 };
+      const timingSort = { key: "panel", dir: 1 };
+      renderMetrics();
+      renderTiming();
+
+      function rowsForPanel(rows, panelKey) {
+        return rows.filter(function (r) { return r.panel === panelKey; });
+      }
+
+      function renderAlleleChart() {
+        const rows = rowsForPanel(headlineRows, chartPanel);
+        const n = rows.length ? rows[0].n : null;
+        const species = rows.length ? rows[0].species : null;
+        const title = document.getElementById("allele-title");
+        title.textContent = "Allele accuracy vs gold" + (species ? " — " + species : "");
+        document.getElementById("allele-blurb").textContent =
+          "Mean 1/n allele score × 100" +
+          (n != null ? ". n = " + n + " reads" : "") +
+          " (D scored only when gold D is present).";
+
+        const groups = [
+          { key: "v", label: "V allele" },
+          { key: "d", label: "D allele" },
+          { key: "j", label: "J allele" }
+        ];
+        const series = tools.map(function (tool) {
+          const row = rows.filter(function (r) { return r.pred === tool; })[0];
+          return {
+            name: tool,
+            color: colorOf[tool],
+            values: groups.map(function (g) {
+              const v = row ? row[g.key] : null;
+              return v != null && typeof v === "number" && isFinite(v) ? v : null;
+            })
+          };
+        });
+
+        const kpis = document.getElementById("allele-kpis");
+        kpis.replaceChildren();
+        series.forEach(function (s) {
+          if (s.values[0] == null) return;
+          kpis.appendChild(kpiEl(pct(s.values[0]), s.name + " V"));
+        });
+
+        document.getElementById("allele-plot").replaceChildren(
+          groupedBars(groups.map(function (g) { return g.label; }), series, {
+            yMax: 1,
+            tickFmt: function (v) { return Math.round(v * 100) + "%"; },
+            barFmt: function (v) { return (v * 100).toFixed(1) + "%"; }
+          })
+        );
+        fillLegend(document.getElementById("allele-legend"), series);
+      }
+
+      function renderTimingChart() {
+        const rows = rowsForPanel(timing, chartPanel);
+        const series = [];
+        tools.forEach(function (tool) {
+          const hits = rows.filter(function (r) { return r.tool === tool; });
+          let wall = 0;
+          let any = false;
+          hits.forEach(function (r) {
+            if (typeof r.wall_s === "number" && isFinite(r.wall_s)) {
+              wall += r.wall_s;
+              any = true;
+            }
+          });
+          if (any) series.push({ name: tool, color: colorOf[tool], values: [wall] });
+        });
+        if (!series.length) {
+          document.getElementById("timing-chart").hidden = true;
+          return;
+        }
+
+        const walls = series.map(function (s) { return s.values[0]; });
+        const slow = Math.max.apply(null, walls);
+        const fast = Math.min.apply(null, walls);
+        const slowS = series.filter(function (s) { return s.values[0] === slow; })[0];
+        const fastS = series.filter(function (s) { return s.values[0] === fast; })[0];
+        const kpis = document.getElementById("timing-kpis");
+        kpis.replaceChildren();
+        kpis.appendChild(kpiEl(fmtSec(slow), slowS.name));
+        const fastEl = kpiEl(fmtSec(fast), "Fastest · " + fastS.name);
+        fastEl.querySelector(".val").classList.add("good");
+        kpis.appendChild(fastEl);
+        if (fast > 0 && slow > fast) {
+          kpis.appendChild(kpiEl((slow / fast).toFixed(1) + "×", "slowest / fastest"));
+        }
+
+        const yMax = niceMax(slow);
+        document.getElementById("timing-plot").replaceChildren(
+          groupedBars(series.map(function (s) { return s.name; }), series.map(function (s, i) {
+            return {
+              name: s.name,
+              color: s.color,
+              values: series.map(function (_, j) { return j === i ? s.values[0] : null; })
+            };
+          }), {
+            yMax: yMax,
+            tickFmt: function (v) { return fmtSec(v); },
+            barFmt: function (v) { return fmtSec(v); },
+            single: true
+          })
+        );
+        fillLegend(document.getElementById("timing-legend"), series);
+      }
+
+      function groupedBars(groupLabels, series, opt) {
+        const W = 920, H = 360, L = 58, R = 18, T = 32, B = 44;
+        const plotW = W - L - R, plotH = H - T - B;
+        const nG = groupLabels.length;
+        const nS = Math.max(series.length, 1);
+        const gW = plotW / Math.max(nG, 1);
+        const inner = gW * (opt.single ? 0.42 : 0.7);
+        const gap = 3;
+        const barW = opt.single ? inner : Math.max((inner - gap * (nS - 1)) / nS, 6);
+        const yMax = opt.yMax > 0 ? opt.yMax : 1;
+
+        const svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img" });
+        [0, 0.5, 1].forEach(function (t) {
+          const y = T + plotH * (1 - t);
+          svg.appendChild(svgEl("line", {
+            x1: L, x2: L + plotW, y1: y, y2: y,
+            stroke: t === 0 ? "#3f3f46" : "#27272a", "stroke-width": "1"
+          }));
+          const lab = svgEl("text", {
+            x: L - 10, y: y + 4, fill: "#a1a1aa",
+            "font-size": "12", "text-anchor": "end",
+            "font-family": "ui-sans-serif, system-ui, sans-serif"
+          });
+          lab.textContent = opt.tickFmt(t * yMax);
+          svg.appendChild(lab);
+        });
+
+        groupLabels.forEach(function (label, gi) {
+          const gx = L + gi * gW;
+          const xLab = svgEl("text", {
+            x: gx + gW / 2, y: H - 16, fill: "#d4d4d8",
+            "font-size": "13", "text-anchor": "middle",
+            "font-family": "ui-sans-serif, system-ui, sans-serif"
+          });
+          xLab.textContent = label;
+          svg.appendChild(xLab);
+
+          series.forEach(function (s, si) {
+            const v = s.values[gi];
+            if (v == null) return;
+            const h = plotH * (v / yMax);
+            const x = opt.single
+              ? gx + (gW - barW) / 2
+              : gx + (gW - inner) / 2 + si * (barW + gap);
+            const y = T + plotH - h;
+            const rect = svgEl("rect", {
+              x: x, y: y, width: barW, height: Math.max(h, 0),
+              fill: s.color, rx: "2", ry: "2"
+            });
+            const tipTitle = opt.single ? s.name : groupLabels[gi];
+            const tipBody = opt.single
+              ? [["Wall clock", opt.barFmt(v)]]
+              : series.map(function (ss) {
+                  const vv = ss.values[gi];
+                  return [ss.name, vv == null ? "—" : opt.barFmt(vv)];
+                });
+            bindTip(rect, tipTitle, tipBody);
+            svg.appendChild(rect);
+            if (h > 14) {
+              const tl = svgEl("text", {
+                x: x + barW / 2, y: y - 7, fill: "#fafafa",
+                "font-size": "11", "text-anchor": "middle",
+                "font-family": "ui-sans-serif, system-ui, sans-serif"
+              });
+              tl.textContent = opt.barFmt(v);
+              svg.appendChild(tl);
+            }
+          });
+        });
+        return svg;
+      }
+
+      function renderHeadline() {
+        const lookup = {};
+        headlineRows.forEach(function (r) { lookup[r.panel + "\0" + r.pred] = r; });
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        const hr = document.createElement("tr");
+        appendTh(hr, "panel");
+        tools.forEach(function (t) { appendTh(hr, t, true); });
+        thead.appendChild(hr);
+        table.appendChild(thead);
+        const tbody = document.createElement("tbody");
+        panels.forEach(function (panel) {
+          const tr = document.createElement("tr");
+          const tdP = document.createElement("td");
+          tdP.className = "panel";
+          tdP.textContent = panel;
+          tr.appendChild(tdP);
+          tools.forEach(function (tool) {
+            const td = document.createElement("td");
+            td.className = "num";
+            const row = lookup[panel + "\0" + tool];
+            const val = row ? row[locus] : null;
+            if (val == null || typeof val !== "number") {
+              td.classList.add("empty");
+              td.textContent = "—";
+            } else {
+              const wrap = document.createElement("div");
+              wrap.className = "score";
+              const bar = document.createElement("div");
+              bar.className = "bar";
+              bar.style.width = (Math.max(0, Math.min(1, val)) * 100).toFixed(1) + "%";
+              bar.style.background = colorOf[tool] || "#00CC96";
+              const span = document.createElement("span");
+              span.className = "val";
+              span.textContent = fmtScore(val);
+              wrap.appendChild(bar);
+              wrap.appendChild(span);
+              td.appendChild(wrap);
+            }
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        document.getElementById("headline-table").replaceChildren(table);
+      }
+
+      function renderMetrics() {
+        const rows = metrics.filter(function (r) {
+          return filterKeys.every(function (k) {
+            const f = filterState[k];
+            return !f || String(r[k]) === f;
+          });
+        }).slice().sort(function (a, b) { return cmp(a, b, metricSort.key, metricSort.dir); });
+        document.getElementById("metrics-table").replaceChildren(dataTable([
+          { key: "panel", label: "panel" },
+          { key: "pred", label: "pred" },
+          { key: "ref", label: "ref" },
+          { key: "metric", label: "metric" },
+          { key: "v", label: "V", num: true, score: true },
+          { key: "d", label: "D", num: true, score: true },
+          { key: "j", label: "J", num: true, score: true },
+          { key: "n", label: "n", num: true }
+        ], rows, metricSort, renderMetrics));
+      }
+
+      function renderTiming() {
+        const rows = timing.slice().sort(function (a, b) {
+          return cmp(a, b, timingSort.key, timingSort.dir);
+        });
+        document.getElementById("timing-table").replaceChildren(dataTable([
+          { key: "panel", label: "panel" },
+          { key: "tool", label: "tool" },
+          { key: "wall_s", label: "wall_s", num: true, digits: 3 },
+          { key: "n_sequences", label: "n", num: true },
+          { key: "seq_per_s", label: "seq/s", num: true, digits: 1 }
+        ], rows, timingSort, renderTiming));
+      }
+
+      function dataTable(cols, rows, sortState, rerender) {
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        const hr = document.createElement("tr");
+        cols.forEach(function (c) {
+          const th = document.createElement("th");
+          th.className = "sort" + (c.num ? " num" : "");
+          th.textContent = c.label;
+          if (sortState.key === c.key) th.setAttribute("data-dir", sortState.dir > 0 ? "asc" : "desc");
+          th.addEventListener("click", function () {
+            if (sortState.key === c.key) sortState.dir *= -1;
+            else { sortState.key = c.key; sortState.dir = 1; }
+            rerender();
+          });
+          hr.appendChild(th);
+        });
+        thead.appendChild(hr);
+        table.appendChild(thead);
+        const tbody = document.createElement("tbody");
+        rows.forEach(function (r) {
+          const tr = document.createElement("tr");
+          cols.forEach(function (c) {
+            const td = document.createElement("td");
+            if (c.num) td.className = "num";
+            if (c.key === "panel") td.className = (td.className + " panel").trim();
+            const v = r[c.key];
+            if (c.score) td.textContent = fmtScore(v);
+            else if (c.digits != null) td.textContent = fmtNum(v, c.digits);
+            else if (v == null) td.textContent = "—";
+            else td.textContent = String(v);
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        return table;
+      }
+
+      function kpiEl(value, lab) {
+        const d = document.createElement("div");
+        d.className = "kpi";
+        const v = document.createElement("div");
+        v.className = "val";
+        v.textContent = value;
+        const l = document.createElement("div");
+        l.className = "lab";
+        l.textContent = lab;
+        d.appendChild(v);
+        d.appendChild(l);
+        return d;
+      }
+
+      function fillLegend(el, series) {
+        el.replaceChildren();
+        series.forEach(function (s) {
+          const span = document.createElement("span");
+          const dot = document.createElement("i");
+          dot.style.background = s.color;
+          span.appendChild(dot);
+          span.appendChild(document.createTextNode(s.name));
+          el.appendChild(span);
+        });
+      }
+
+      function bindTip(el, title, rows) {
+        el.addEventListener("mouseenter", function (ev) {
+          tip.hidden = false;
+          tip.replaceChildren();
+          const st = document.createElement("strong");
+          st.textContent = title;
+          tip.appendChild(st);
+          rows.forEach(function (pair) {
+            const line = document.createElement("div");
+            line.className = "row";
+            const name = document.createElement("span");
+            name.textContent = pair[0];
+            const val = document.createElement("b");
+            val.textContent = pair[1];
+            line.appendChild(name);
+            line.appendChild(val);
+            tip.appendChild(line);
+          });
+          moveTip(ev);
+        });
+        el.addEventListener("mousemove", moveTip);
+        el.addEventListener("mouseleave", function () { tip.hidden = true; });
+      }
+
+      function moveTip(ev) {
+        tip.style.left = (ev.clientX + 14) + "px";
+        tip.style.top = (ev.clientY + 14) + "px";
+      }
+
+      function svgEl(tag, attrs) {
+        const el = document.createElementNS(NS, tag);
+        Object.keys(attrs).forEach(function (k) { el.setAttribute(k, attrs[k]); });
+        return el;
+      }
+
+      function metaLine(d) {
+        const parts = [];
+        if (d.mode) parts.push("mode " + d.mode);
+        if (d.step != null) parts.push("step " + d.step);
+        const tags = d.tags || {};
+        Object.keys(tags).forEach(function (k) {
+          if (k === "step") return;
+          parts.push(k + " " + tags[k]);
+        });
+        if (d.schema_version != null) parts.push("schema " + d.schema_version);
+        return parts.join(" · ");
+      }
+
+      function unique(arr) {
+        const seen = new Set();
+        const out = [];
+        arr.forEach(function (x) {
+          if (x == null || seen.has(x)) return;
+          seen.add(x);
+          out.push(x);
+        });
+        return out;
+      }
+
+      function appendTh(tr, text, num) {
+        const th = document.createElement("th");
+        if (num) th.className = "num";
+        th.textContent = text;
+        tr.appendChild(th);
+      }
+
+      function fmtScore(v) {
+        if (v == null || typeof v !== "number" || !isFinite(v)) return "—";
+        return v.toFixed(4);
+      }
+
+      function fmtNum(v, digits) {
+        if (v == null || typeof v !== "number" || !isFinite(v)) return "—";
+        return v.toFixed(digits);
+      }
+
+      function fmtSec(v) {
+        if (v == null || !isFinite(v)) return "—";
+        if (v >= 10) return Math.round(v) + " s";
+        if (v >= 1) return v.toFixed(1) + " s";
+        return v.toFixed(3) + " s";
+      }
+
+      function pct(v) { return (v * 100).toFixed(1) + "%"; }
+
+      function niceMax(v) {
+        if (!(v > 0)) return 1;
+        const p = Math.pow(10, Math.floor(Math.log10(v)));
+        const n = v / p;
+        const m = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
+        return m * p;
+      }
+
+      function cmp(a, b, key, dir) {
+        const va = a[key], vb = b[key];
+        const na = va == null || (typeof va === "number" && !isFinite(va));
+        const nb = vb == null || (typeof vb === "number" && !isFinite(vb));
+        if (na && nb) return 0;
+        if (na) return 1;
+        if (nb) return -1;
+        if (typeof va === "number" && typeof vb === "number") return dir * (va - vb);
+        return dir * String(va).localeCompare(String(vb));
+      }
+    })();
+  </script>
+</body>
+</html>

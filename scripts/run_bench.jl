@@ -8,6 +8,9 @@
 using IgBench
 using Dates
 
+# Package extension activates only after IgBLAST is loaded.
+IgBench.load_igblast_extension!()
+
 function parse_args(args)
     manifest = ""
     mode = "full"
@@ -63,6 +66,7 @@ function main(args)
     store = DirectoryRunStore(opt.out)
     result = run_suite(suite; mode, store)
     println("wrote $(length(result.metrics)) metric rows → $(result.store_path)")
+    opt.mode == "full" && println(joinpath(result.store_path, "report.html"))
     result
 end
 

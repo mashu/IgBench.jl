@@ -31,7 +31,3 @@ function format_summary(suite_name::AbstractString,
     end
     String(take!(io))
 end
-
-write_summary_if_full(::DiagnosticMode, store, name, metrics, timing) = nothing
-write_summary_if_full(::FullReportMode, store, name, metrics, timing) =
-    write_summary!(store, format_summary(name, metrics, timing))

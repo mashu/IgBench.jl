@@ -148,18 +148,29 @@ function run_suite(suite::BenchSuite;
         end
     end
 
-    write_manifest!(store_obj, Dict{String,Any}(
+    payload = Dict{String,Any}(
         "schema_version" => SCHEMA_VERSION,
         "suite" => suite.name,
         "mode" => mode_name(mode),
         "step" => step,
         "tags" => tag_dict,
         "tools" => [tool_name(t) for t in suite.tools],
+        "panels" => panels_meta,
+        "metrics" => metric_rows,
+        "timing" => timing_rows,
+    )
+    write_manifest!(store_obj, Dict{String,Any}(
+        "schema_version" => payload["schema_version"],
+        "suite" => payload["suite"],
+        "mode" => payload["mode"],
+        "step" => payload["step"],
+        "tags" => payload["tags"],
+        "tools" => payload["tools"],
     ))
     write_panels_meta!(store_obj, panels_meta)
     write_metrics_bundle!(store_obj, metric_rows, nested)
     write_timing!(store_obj, timing_rows)
-    write_summary_if_full(mode, store_obj, suite.name, metric_rows, timing_rows)
+    write_report_if_full(mode, store_obj, payload)
 
     BenchResult(suite.name, mode_name(mode),
                 isnothing(step) ? nothing : Int(step),

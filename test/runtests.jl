@@ -1,5 +1,6 @@
 using Test
 using IgBench
+using JSON
 import IgSim
 using Random
 
@@ -159,7 +160,12 @@ end
     @test isfile(joinpath(outdir, "metrics.jsonl"))
     @test isfile(joinpath(outdir, "metrics.json"))
     @test isfile(joinpath(outdir, "summary.md"))
+    @test isfile(joinpath(outdir, "report.html"))
     @test isfile(joinpath(outdir, "manifest.json"))
+    html = read(joinpath(outdir, "report.html"), String)
+    @test occursin("smoke", html)
+    @test occursin("window.IGBENCH", html)
+    @test !occursin("__IGBENCH_DATA__", html)
     @test !isempty(result.timing)
     @test haskey(result.timing[1], "wall_s")
     @test haskey(result.timing[1], "n_sequences")
@@ -190,6 +196,65 @@ end
     result = run_suite(suite; mode = DiagnosticMode(max_sequences = 4), store = nothing)
     @test result.mode == "diagnostic"
     @test !isempty(result.metrics)
+    diagdir = mktempdir()
+    run_suite(suite; mode = DiagnosticMode(max_sequences = 4),
+              store = DirectoryRunStore(diagdir))
+    @test isfile(joinpath(diagdir, "metrics.json"))
+    @test !isfile(joinpath(diagdir, "report.html"))
+    @test !isfile(joinpath(diagdir, "summary.md"))
+end
+
+function extract_igbench_json(html::AbstractString)
+    marker = "window.IGBENCH = "
+    i = findfirst(marker, html)
+    i === nothing && error("missing IGBENCH payload")
+    start = nextind(html, last(i))
+    tag = findnext("</script>", html, start)
+    tag === nothing && error("unterminated IGBENCH payload")
+    blob = strip(html[start:prevind(html, first(tag))])
+    endswith(blob, ';') && (blob = chop(blob))
+    blob
+end
+
+@testset "html report" begin
+    payload = Dict{String,Any}(
+        "schema_version" => 2,
+        "suite" => "mini-suite",
+        "mode" => "full",
+        "step" => 7,
+        "tags" => Dict{String,Any}("epoch" => 1),
+        "tools" => ["perfect", "other"],
+        "panels" => Dict{String,Any}("p1" => Dict{String,Any}("sim_set" => "all")),
+        "metrics" => [
+            Dict{String,Any}("panel" => "p1", "pred" => "perfect", "ref" => ":gold",
+                             "metric" => "allele", "species" => "sp",
+                             "v" => 0.875, "d" => 1.0, "j" => 0.5, "n" => 8),
+            Dict{String,Any}("panel" => "p1", "pred" => "other", "ref" => ":gold",
+                             "metric" => "allele", "species" => "sp",
+                             "v" => 0.4, "d" => 0.2, "j" => 0.1, "n" => 8),
+        ],
+        "timing" => [
+            Dict{String,Any}("panel" => "p1", "tool" => "perfect",
+                             "wall_s" => 0.01, "n_sequences" => 8, "seq_per_s" => 800.0),
+        ],
+    )
+    html = IgBench.html_report(payload)
+    @test occursin("mini-suite", html)
+    @test occursin("schema_version", html)
+    @test occursin("0.875", html)
+    @test !occursin("__IGBENCH_DATA__", html)
+    parsed = JSON.parse(extract_igbench_json(html))
+    @test parsed["suite"] == "mini-suite"
+    @test parsed["schema_version"] == 2
+    @test parsed["metrics"][1]["v"] == 0.875
+    @test parsed["tools"] == ["perfect", "other"]
+
+    payload["suite"] = "</script><script>alert(1)</script>"
+    html_bad = IgBench.html_report(payload)
+    @test occursin("\\u003c/script>", html_bad)
+    @test count("</script>", html_bad) == 2
+    parsed_bad = JSON.parse(extract_igbench_json(html_bad))
+    @test parsed_bad["suite"] == "</script><script>alert(1)</script>"
 end
 
 @testset "AIRR gold validator" begin
@@ -216,8 +281,14 @@ end
     @test_throws ErrorException annotate(a, ["ACGT"], ["1"], GermlinePaths(; v = VFA, d = DFA, j = JFA))
 end
 
-@testset "IgBLASTAnnotator without IgBLAST" begin
-    @test_throws ErrorException IgBLASTAnnotator()
+@testset "IgBLASTAnnotator extension" begin
+    if isnothing(Base.locate_package(IgBench.IGBLAST_PKG)) &&
+       !IgBench.igblast_extension_ready()
+        @test_throws ErrorException IgBLASTAnnotator()
+    else
+        IgBench.load_igblast_extension!()
+        @test IgBench.igblast_extension_ready()
+    end
 end
 
 @testset "PanelCache freeze" begin

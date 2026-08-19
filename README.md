@@ -82,6 +82,9 @@ julia --project=. scripts/run_bench.jl \
 
 ## Run artifacts (dashboard-ready)
 
+A run is a **directory**. Filenames inside it are fixed (`report.html`, `summary.md`,
+`metrics.json`, …). A new report is a new `--out` directory; the same path overwrites.
+
 ```
 runs/<mode>/<id>/
   manifest.json
@@ -91,6 +94,7 @@ runs/<mode>/<id>/
   metrics.json
   timing.json
   summary.md             # full mode
+  report.html            # full mode; self-contained, open in a browser
 ```
 
 ## Extending

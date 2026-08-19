@@ -16,7 +16,7 @@ end
 function SwiftIGAnnotator(;
                           name::AbstractString = "swiftig",
                           bin::AbstractString = get(ENV, "SWIFTIG_BIN", "swiftig"),
-                          threads::Integer = 1,
+                          threads::Integer = 8,
                           extra_args = String[])
     SwiftIGAnnotator(String(name), String(bin), Int(threads),
                      String[String(a) for a in extra_args])
@@ -40,7 +40,10 @@ end
 function annotate(a::SwiftIGAnnotator, sequences, ids, germline::GermlinePaths; kwargs...)
     n = length(ids)
     length(sequences) == n || error("sequences/ids length mismatch")
-    isnothing(germline.d) && error("SwiftIGAnnotator requires a D germline FASTA path")
+    prepared = any(==("--prepared-reference"), a.extra_args)
+    if !prepared
+        isnothing(germline.d) && error("SwiftIGAnnotator requires a D germline FASTA path")
+    end
     bin = resolve_swiftig_bin(a)
     mktempdir() do dir
         query = joinpath(dir, "query.fasta")
@@ -55,8 +58,14 @@ function annotate(a::SwiftIGAnnotator, sequences, ids, germline::GermlinePaths; 
         for arg in a.extra_args
             cmd = `$cmd $arg`
         end
-        cmd = `$cmd -query $query -germline_db_V $(germline.v) -germline_db_D $(germline.d) -germline_db_J $(germline.j) -out $out_tsv -outfmt 19 -num_threads $(a.threads)`
-        run(cmd)
+        if any(==("--prepared-reference"), a.extra_args)
+            cmd = `$cmd -query $query -out $out_tsv -outfmt 19 -num_threads $(a.threads)`
+        else
+            cmd = `$cmd -query $query -germline_db_V $(germline.v) -germline_db_D $(germline.d) -germline_db_J $(germline.j) -out $out_tsv -outfmt 19 -num_threads $(a.threads)`
+        end
+        err = IOBuffer()
+        success(pipeline(cmd, stderr = err)) ||
+            error("$(a.bin) failed:\n$(String(take!(err)))")
         parsed = read_airr_calls(out_tsv; max_rows = nothing, skip_nonproductive = false)
         by_id = Dict(r.sequence_id => r for r in parsed)
         out = Vector{CallRecord}(undef, n)
