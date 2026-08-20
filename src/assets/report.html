@@ -178,6 +178,43 @@
       margin: 0.85rem 0 0.35rem;
     }
     .span-controls .pick { margin-bottom: 0.25rem; }
+    .heat {
+      width: auto;
+      min-width: 100%;
+    }
+    .heat caption {
+      caption-side: top;
+      text-align: left;
+      color: var(--muted);
+      font-size: 12.5px;
+      padding: 0.45rem 0.7rem 0.35rem;
+    }
+    .heat th.corner { background: var(--th); }
+    .heat th.tool, .heat td.tool {
+      text-align: left;
+      font-weight: 550;
+    }
+    .heat td.heat-cell {
+      text-align: center;
+      cursor: pointer;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.25;
+    }
+    .heat td.heat-cell small {
+      display: block;
+      font-size: 11px;
+      opacity: 0.85;
+    }
+    .heat td.heat-cell[aria-pressed="true"] {
+      outline: 2px solid #f5f5f4;
+      outline-offset: -2px;
+    }
+    .heat td.heat-diag {
+      text-align: center;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      cursor: default;
+    }
     .filters {
       display: flex;
       flex-wrap: wrap;
@@ -353,7 +390,7 @@
       <div class="hero-top">
         <div>
           <h2>Span disagreement vs gold</h2>
-          <p class="blurb">V/D/J and start/stop switch this whole section: miss rates, the Δ histogram, and MSA examples. Δ=0 is how many got that edge right vs gold. Unique vs shared on the stacked bars (and on each MSA card) is whether the other family landed on the same wrong coordinate.</p>
+          <p class="blurb">V/D/J and start/stop switch this whole section. The heatmap is the same scored reads: each off-diagonal cell is how often the row is closer to gold than the column on that edge (exact is closest). Click a hot cell, then a Δ bar, to unfold MSA examples for that pair and offset. Diagonal is exact vs gold and is not clickable.</p>
         </div>
       </div>
       <div class="span-controls">
@@ -374,8 +411,8 @@
         </div>
       </div>
       <div class="scroll exact-summary" id="span-exact-summary"></div>
-      <div class="chart" id="span-plot"></div>
-      <div class="legend" id="span-legend"></div>
+      <div class="scroll" id="span-heat"></div>
+      <p class="span-head" id="span-heat-cap"></p>
       <div id="span-viewer" hidden>
         <p class="span-head" id="span-viewer-title"></p>
         <div class="offset-grid" id="span-offset" hidden>
@@ -385,7 +422,8 @@
           </div>
         </div>
         <div class="legend" id="span-offset-legend"></div>
-        <p class="span-head" id="span-msa-head">MSA examples · mismatches on this edge</p>
+        <div id="span-msa" hidden>
+        <p class="span-head" id="span-msa-head">Click a heatmap cell to unfold alignments</p>
         <div class="aln-legend" id="aln-legend" hidden>
           <span><i class="b-match">A</i>match vs germline</span>
           <span><i class="b-mis">C</i>mismatch vs germline</span>
@@ -394,6 +432,7 @@
           <span><i class="b-trim">-</i>outside this row&apos;s start–stop</span>
         </div>
         <div id="span-pairs"></div>
+        </div>
       </div>
     </section>
     <section id="headline" class="plain" hidden>
@@ -462,9 +501,13 @@
         sel.value = chartPanel;
         sel.addEventListener("change", function () {
           chartPanel = sel.value;
+          spanWinner = null;
+          spanLoser = null;
+          spanBinTool = null;
+          spanBin = null;
           renderAlleleChart();
           renderTimingChart();
-          renderSpanChart();
+          renderCloserHeatmap();
           showSpanSamples();
         });
       }
@@ -487,26 +530,25 @@
       }
 
       const gallery = data.span_gallery || [];
-      const KIND_COLOR = {
-        start: { shared: "#9f1239", unique: "#fb7185" },
-        stop: { shared: "#c2410c", unique: "#fdba74" }
-      };
-      const SHARE_LABEL = {
-        igblast_unique: "IgBLAST unique",
-        swig_unique: "SWIG unique",
-        shared: "shared same-wrong"
-      };
       let spanLocus = "v";
       let spanKind = "start";
+      let spanWinner = null;
+      let spanLoser = null;
+      let spanBinTool = null;
+      let spanBin = null;
       if (gallery.length) {
         document.getElementById("span-chart").hidden = false;
         bindPressed("#span-locus [data-locus]", "data-locus", setLocus);
         bindPressed("#span-kind [data-kind]", "data-kind", function (v) {
           spanKind = v;
-          renderSpanChart();
+          spanWinner = null;
+          spanLoser = null;
+          spanBinTool = null;
+          spanBin = null;
+          renderCloserHeatmap();
           showSpanSamples();
         });
-        renderSpanChart();
+        renderCloserHeatmap();
         showSpanSamples();
       }
 
@@ -653,36 +695,159 @@
         })[0];
       }
 
-      function renderSpanChart() {
-        const series = ["shared", "unique"].map(function (part) {
-          return {
-            name: part === "shared" ? "shared same-wrong" : "unique (other family differs)",
-            kind: spanKind,
-            stack: spanKind,
-            part: part,
-            color: (KIND_COLOR[spanKind] || KIND_COLOR.start)[part],
-            values: tools.map(function (tool) {
-              const cell = jointCell(spanLocus, spanKind);
-              const st = cell && cell.tools ? cell.tools[tool] : null;
-              const r = st ? st[part + "_rate"] : null;
-              return r != null && typeof r === "number" && isFinite(r) ? r : null;
-            })
-          };
-        });
+      function renderCloserHeatmap() {
         renderExactSummary();
-        document.getElementById("span-plot").replaceChildren(
-          groupedBars(tools, series, {
-            yMax: 1,
-            yTitle: "wrong vs gold (% of scored reads)",
-            xTitle: "tool",
-            tickFmt: function (v) { return Math.round(v * 100) + "%"; },
-            barFmt: function (v) { return (v * 100).toFixed(1) + "%"; },
-            onBar: function () {
-              showSpanSamples({ scroll: true });
+        const cell = jointCell(spanLocus, spanKind);
+        const wrap = document.getElementById("span-heat");
+        const cap = document.getElementById("span-heat-cap");
+        if (!cell || !cell.closer || !cell.closer.tools) {
+          wrap.replaceChildren();
+          cap.textContent = "";
+          return;
+        }
+        const names = cell.closer.tools;
+        const n = cell.n_scored || 0;
+        const win = cell.closer.win || [];
+        const tie = cell.closer.tie || [];
+        const exact = cell.closer.exact || [];
+        const table = document.createElement("table");
+        table.className = "heat";
+        const capEl = document.createElement("caption");
+        capEl.textContent = "same " + n + " reads · cell = how often the row is closer to gold than the column on " +
+          spanLocus.toUpperCase() + " " + spanKind;
+        table.appendChild(capEl);
+        const thead = document.createElement("thead");
+        const hr = document.createElement("tr");
+        const corner = document.createElement("th");
+        corner.className = "corner";
+        corner.textContent = "row closer than →";
+        hr.appendChild(corner);
+        names.forEach(function (t) { appendTh(hr, t); });
+        thead.appendChild(hr);
+        table.appendChild(thead);
+        let maxWin = 0;
+        names.forEach(function (_, i) {
+          names.forEach(function (__, j) {
+            if (i === j) return;
+            const r = win[i] && win[i][j];
+            if (typeof r === "number" && isFinite(r) && r > maxWin) maxWin = r;
+          });
+        });
+        const tbody = document.createElement("tbody");
+        names.forEach(function (rowName, i) {
+          const tr = document.createElement("tr");
+          const tdR = document.createElement("td");
+          tdR.className = "tool";
+          tdR.textContent = rowName;
+          tr.appendChild(tdR);
+          names.forEach(function (colName, j) {
+            const td = document.createElement("td");
+            if (i === j) {
+              td.className = "heat-diag";
+              const ex = exact[i];
+              td.textContent = (ex != null && typeof ex === "number" && isFinite(ex))
+                ? (100 * ex).toFixed(1) + "% exact"
+                : "—";
+              tr.appendChild(td);
+              return;
             }
-          })
-        );
-        fillLegend(document.getElementById("span-legend"), series);
+            const rate = win[i] && win[i][j];
+            const nWin = (rate != null && n) ? Math.round(rate * n) : 0;
+            const tRate = tie[i] && tie[i][j];
+            const nTie = (tRate != null && n) ? Math.round(tRate * n) : 0;
+            const pack = findContrast(cell, rowName, colName);
+            const nExact = pack && pack.n_exact != null ? pack.n_exact : 0;
+            const nCloser = pack && pack.n_closer_wrong != null ? pack.n_closer_wrong : 0;
+            td.className = "heat-cell";
+            td.setAttribute("role", "button");
+            td.setAttribute("aria-pressed",
+              spanWinner === rowName && spanLoser === colName ? "true" : "false");
+            const pct = document.createElement("span");
+            pct.textContent = (rate != null && typeof rate === "number" && isFinite(rate))
+              ? (100 * rate).toFixed(1) + "%"
+              : "—";
+            td.appendChild(pct);
+            const sm = document.createElement("small");
+            sm.textContent = String(nWin);
+            td.appendChild(sm);
+            if (rate != null && typeof rate === "number" && isFinite(rate) && rate > 0) {
+              const t = maxWin > 0 ? Math.max(0, Math.min(1, rate / maxWin)) : rate;
+              td.style.background = "rgba(159, 18, 57, " + (0.18 + 0.75 * t) + ")";
+            }
+            bindTip(td, rowName + " closer than " + colName, [
+              ["closer", nWin + (n ? " / " + n : "")],
+              ["row exact, column off", String(nExact)],
+              ["both off, row closer", String(nCloser)],
+              ["tie (same |Δ|)", String(nTie)]
+            ]);
+            td.addEventListener("click", function () {
+              if (spanWinner === rowName && spanLoser === colName) {
+                spanWinner = null;
+                spanLoser = null;
+                spanBinTool = null;
+                spanBin = null;
+              } else {
+                spanWinner = rowName;
+                spanLoser = colName;
+                const picked = findContrast(cell, rowName, colName);
+                spanBinTool = (picked && picked.peak_tool) || colName;
+                spanBin = picked && picked.peak_bin != null && picked.peak_bin !== ""
+                  ? picked.peak_bin : null;
+              }
+              renderCloserHeatmap();
+              showSpanSamples({ scroll: true });
+            });
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        wrap.replaceChildren(table);
+        cap.textContent = spanWinner && spanLoser
+          ? contrastCaption(cell, spanWinner, spanLoser)
+          : "click a cell to unfold MSA examples for that pair";
+      }
+
+      function findContrast(cell, winner, loser) {
+        const rows = (cell && cell.contrasts) || [];
+        for (let i = 0; i < rows.length; i++) {
+          const c = rows[i];
+          if (c && c.winner === winner && c.loser === loser) return c;
+        }
+        return null;
+      }
+
+      function findBinPack(pack, tool, bin) {
+        if (!pack || !tool || bin == null || bin === "") return null;
+        const want = String(bin);
+        const rows = pack.bin_packs || [];
+        for (let i = 0; i < rows.length; i++) {
+          const p = rows[i];
+          if (p && p.tool === tool && String(p.bin) === want) return p;
+        }
+        return null;
+      }
+
+      function binPhrase(bin, kind) {
+        if (bin === "miss") return "missing " + kind;
+        if (String(bin) === "0") return "Δ" + kind + " 0 (exact)";
+        const n = Number(bin);
+        if (!isFinite(n)) return "Δ" + kind + " " + bin;
+        return "Δ" + kind + " " + (n > 0 ? "+" : "") + n;
+      }
+
+      function contrastCaption(cell, winner, loser) {
+        const pack = findContrast(cell, winner, loser);
+        const n = cell && cell.n_scored;
+        const bits = [winner + " closer than " + loser];
+        if (pack && pack.n != null) bits.push(pack.n + (n ? " / " + n : "") + " reads");
+        const bp = findBinPack(pack, spanBinTool, spanBin);
+        if (bp) {
+          bits.push(spanBinTool + " " + binPhrase(spanBin, spanKind) + " (" + bp.n + ")");
+        } else if (pack && pack.peak) {
+          bits.push("peak " + pack.peak + (pack.peak_n ? " (" + pack.peak_n + ")" : ""));
+        }
+        return bits.join(" · ");
       }
 
       function histExact(cell, tool, which) {
@@ -770,12 +935,16 @@
       function setLocus(v) {
         locus = v;
         spanLocus = v;
+        spanWinner = null;
+        spanLoser = null;
+        spanBinTool = null;
+        spanBin = null;
         document.querySelectorAll("[data-locus]").forEach(function (b) {
           b.setAttribute("aria-pressed", b.getAttribute("data-locus") === v ? "true" : "false");
         });
         renderHeadline();
         if (gallery.length) {
-          renderSpanChart();
+          renderCloserHeatmap();
           showSpanSamples();
         }
       }
@@ -793,36 +962,69 @@
         const title = document.getElementById("span-viewer-title");
         const pairs = document.getElementById("span-pairs");
         const offsetWrap = document.getElementById("span-offset");
+        const msaWrap = document.getElementById("span-msa");
         viewer.hidden = false;
         if (!cell) {
           title.textContent = "";
           document.getElementById("aln-legend").hidden = true;
           offsetWrap.hidden = true;
-          pairs.replaceChildren(emptyNote("No gallery cell for this selection."));
+          msaWrap.hidden = true;
+          pairs.replaceChildren();
           return;
         }
-        const pack = (cell.sample_cats && cell.sample_cats.total) || {};
-        const samples = pack.samples || cell.samples || [];
         const bits = [selectionLabel()];
         if (cell.n_scored != null) bits.push("n = " + cell.n_scored + " scored");
-        if (pack.n != null) bits.push(pack.n + " mismatches");
-        if (pack.peak) bits.push("MSA from " + pack.peak + (pack.peak_n ? " (" + pack.peak_n + ")" : ""));
-        title.textContent = bits.join(" — ");
-        renderOffsetPlots(cell, kind);
-        const msaHead = document.getElementById("span-msa-head");
-        if (msaHead) {
-          msaHead.textContent = pack.peak
-            ? ("MSA examples · 10 from " + pack.peak +
-               (pack.peak_n ? " (" + pack.peak_n + " reads in that bin)" : ""))
-            : "MSA examples · mismatches on this edge";
+        const pack = (spanWinner && spanLoser) ? (findContrast(cell, spanWinner, spanLoser) || {}) : null;
+        if (pack && pack.n) {
+          bits.push(pack.n + " where " + spanWinner + " is closer than " + spanLoser);
         }
+        if (pack && spanBinTool != null && spanBin != null && spanBin !== "") {
+          bits.push(spanBinTool + " " + binPhrase(spanBin, kind));
+        }
+        title.textContent = bits.join(" — ");
+        const pairOffs = pack && pack.n && pack.offsets;
+        const histClick = pairOffs ? {
+          selected: (spanBinTool != null && spanBin != null && spanBin !== "")
+            ? { tool: spanBinTool, bin: spanBin } : null,
+          onBar: function (hit) {
+            spanBinTool = hit.tool;
+            spanBin = hit.bin;
+            showSpanSamples({ scroll: true });
+          }
+        } : null;
+        if (pairOffs) {
+          renderOffsetPlots(pairOffs, pack.n, kind,
+            "Δ " + kind + " vs gold · " + pack.n + " reads where " + spanWinner +
+            " is closer than " + spanLoser + " · click a bar to filter MSA to that Δ",
+            histClick);
+        } else {
+          renderOffsetPlots(cell.offsets || {}, cell.n_scored, kind,
+            "Δ " + kind + " vs gold · all " + (cell.n_scored != null ? cell.n_scored + " scored" : "scored") +
+            " · Δ=0 = correct on " + kind);
+        }
+        if (!spanWinner || !spanLoser) {
+          msaWrap.hidden = true;
+          document.getElementById("aln-legend").hidden = true;
+          pairs.replaceChildren();
+          return;
+        }
+        const binPack = findBinPack(pack, spanBinTool, spanBin);
+        const samples = (binPack && binPack.samples) || [];
+        msaWrap.hidden = false;
+        const msaHead = document.getElementById("span-msa-head");
+        if (msaHead) msaHead.textContent = contrastCaption(cell, spanWinner, spanLoser);
         if (!samples.length) {
+          const nBin = binPack && binPack.n;
           pairs.replaceChildren(emptyNote(
-            pack.n ? "No MSA examples stored for this edge." :
-              "No mismatches on " + selectionLabel() + "."
+            nBin
+              ? "No MSA examples stored for " + spanBinTool + " " + binPhrase(spanBin, kind) +
+                " (" + nBin + " reads in this bin)."
+              : pack && pack.n
+                ? "Click a Δ bar to unfold alignments for that offset. Peak mass is selected by default."
+                : spanWinner + " is never closer than " + spanLoser + " on this edge."
           ));
           document.getElementById("aln-legend").hidden = true;
-          if (opt.scroll) viewer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          if (opt.scroll) offsetWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
           return;
         }
         document.getElementById("aln-legend").hidden = false;
@@ -831,21 +1033,18 @@
           frag.appendChild(pairCard(s, i, locus, kind));
         });
         pairs.replaceChildren(frag);
-        if (opt.scroll) viewer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        if (opt.scroll) offsetWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }
 
-      function renderOffsetPlots(cell, which) {
+      function renderOffsetPlots(offs, n, which, label, clickOpt) {
         const wrap = document.getElementById("span-offset");
-        const offs = cell.offsets || {};
+        offs = offs || {};
+        clickOpt = clickOpt || {};
         const names = (tools.length ? tools : Object.keys(offs)).filter(function (t) {
           return offs[t];
         });
-        const n = cell.n_scored;
         const lab = document.getElementById("span-offset-lab");
-        if (lab) {
-          lab.textContent = "Δ " + which + " vs gold · all " + (n != null ? n + " scored" : "scored") +
-            " · Δ=0 = correct on " + which;
-        }
+        if (lab) lab.textContent = label;
         if (!names.length) {
           wrap.hidden = true;
           document.getElementById("span-offset-legend").replaceChildren();
@@ -853,7 +1052,7 @@
         }
         wrap.hidden = false;
         document.getElementById("span-offset-plot").replaceChildren(
-          offsetHistSvg(offs, names, which, n));
+          offsetHistSvg(offs, names, which, n, clickOpt));
         const legendSeries = names.map(function (t) {
           const h = offs[t] && offs[t][which];
           const ns = h && h.n ? h.n : 0;
@@ -904,7 +1103,8 @@
         return { xs: xs, anyMiss: anyMiss };
       }
 
-      function offsetHistSvg(offs, names, which, nScored) {
+      function offsetHistSvg(offs, names, which, nScored, clickOpt) {
+        clickOpt = clickOpt || {};
         const axis = offsetAxis(offs, names, which);
         const xs = axis.xs;
         const series = names.map(function (t) {
@@ -961,9 +1161,18 @@
           barFmt: function (v) {
             if (!(v > 0)) return "0";
             const n = nScored > 0 ? nScored : 0;
-            return n ? v + " · " + (100 * v / n).toFixed(2) + "% of scored" : String(v);
+            return n ? v + " · " + (100 * v / n).toFixed(2) + "% of these" : String(v);
           },
-          tipAll: true
+          tipAll: true,
+          xs: xs,
+          selected: clickOpt.selected,
+          onBar: clickOpt.onBar ? function (hit) {
+            clickOpt.onBar({
+              tool: hit.series,
+              bin: hit.xZero ? 0 : xs[hit.gi],
+              gi: hit.gi
+            });
+          } : null
         });
       }
 
@@ -971,8 +1180,8 @@
         const d = document.createElement("div");
         d.className = "pair";
         const h = document.createElement("h3");
-        h.textContent = (i + 1) + ". " + (s.sequence_id || "read") +
-          (s.share ? " · " + (SHARE_LABEL[s.share] || s.share) : "");
+        const why = pairWhyLine(s, kind);
+        h.textContent = (i + 1) + ". " + (s.sequence_id || "read") + (why ? " · " + why : "");
         d.appendChild(h);
         const meta = document.createElement("div");
         meta.className = "meta";
@@ -982,16 +1191,42 @@
         return d;
       }
 
+      function toolEdgeDelta(s, tool, kind) {
+        const gold = s.gold_span;
+        const sp = s.tool_spans && s.tool_spans[tool];
+        if (!gold || gold.length !== 2 || !sp || sp.length !== 2) return null;
+        return kind === "stop" ? sp[1] - gold[1] : sp[0] - gold[0];
+      }
+
+      function edgeDeltaPhrase(d, kind) {
+        if (d == null) return "no " + kind + " call";
+        if (d === 0) return "exact vs gold";
+        return "Δ" + kind + " " + (d > 0 ? "+" : "") + d + " vs gold";
+      }
+
+      function pairWhyLine(s, kind) {
+        const winner = spanWinner;
+        const loser = spanLoser;
+        if (!winner || !loser) return "";
+        const dw = toolEdgeDelta(s, winner, kind);
+        const dl = toolEdgeDelta(s, loser, kind);
+        if (dw === 0) {
+          return winner + " exact vs gold · " + loser + " " + edgeDeltaPhrase(dl, kind);
+        }
+        return winner + " closer (" + edgeDeltaPhrase(dw, kind) + ") · " +
+          loser + " " + edgeDeltaPhrase(dl, kind);
+      }
+
       function spanMetaLine(s, locus, kind) {
         const gs = (s.gold_span && s.gold_span.length === 2) ? s.gold_span[0] + "–" + s.gold_span[1] : "—";
-        const parts = [locus.toUpperCase(), "gold " + gs];
+        const parts = [locus.toUpperCase() + " " + kind, "gold " + gs];
         const spans = s.tool_spans || {};
         Object.keys(spans).forEach(function (t) {
           const sp = spans[t];
-          parts.push(t + " " + (sp && sp.length === 2 ? sp[0] + "–" + sp[1] : "—"));
+          const coord = sp && sp.length === 2 ? sp[0] + "–" + sp[1] : "—";
+          parts.push(t + " " + coord + " (" + edgeDeltaPhrase(toolEdgeDelta(s, t, kind), kind) + ")");
         });
-        if (s.iou != null && typeof s.iou === "number") parts.push("IoU " + s.iou.toFixed(3));
-        parts.push("gold " + (s.gold_call || "—"));
+        parts.push("gold allele " + (s.gold_call || "—"));
         return parts.join(" · ");
       }
 
@@ -1264,11 +1499,20 @@
             const ghost = opt.ghost && opt.ghost[gi] && opt.ghost[gi][si];
             if (ghost) {
               const stub = 12;
+              const picked = opt.selected && ghost.name === opt.selected.tool &&
+                String(opt.selected.bin) === "0";
               const rect = svgEl("rect", {
                 x: x, y: T + plotH - stub, width: barW, height: stub,
-                fill: "none", stroke: ghost.color, "stroke-width": "1.2",
-                "stroke-dasharray": "2.5 2", rx: "2", ry: "2"
+                fill: "none", stroke: picked ? "#f5f5f4" : ghost.color,
+                "stroke-width": picked ? "2" : "1.2",
+                "stroke-dasharray": picked ? "none" : "2.5 2", rx: "2", ry: "2"
               });
+              if (opt.onBar) {
+                rect.setAttribute("class", "clickable");
+                rect.addEventListener("click", function () {
+                  opt.onBar({ group: groupLabels[gi], series: ghost.name, gi: gi, xZero: true });
+                });
+              }
               bindTip(rect, "Δ = 0 · correct vs gold on this edge", opt.ghost[gi].map(function (g) {
                 return [g.name, g.count + " correct"];
               }));
@@ -1290,6 +1534,12 @@
                 fill: (s.colors && s.colors[gi]) || s.color,
                 rx: members.length === 1 ? "2" : "0", ry: members.length === 1 ? "2" : "0"
               });
+              const xVal = opt.xs ? opt.xs[gi] : null;
+              if (opt.selected && sid === opt.selected.tool &&
+                  xVal != null && String(xVal) === String(opt.selected.bin)) {
+                rect.setAttribute("stroke", "#f5f5f4");
+                rect.setAttribute("stroke-width", "2");
+              }
               if (opt.onBar) {
                 rect.setAttribute("class", "clickable");
                 rect.addEventListener("click", function () {

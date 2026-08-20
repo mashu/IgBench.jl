@@ -170,17 +170,21 @@ end
     @test occursin("Span disagreement vs gold", html)
     @test occursin("outside this row", html)
     @test occursin("fillMsa", html)
-    @test occursin("same wrong coordinate", html)
+    @test occursin("closer to gold", html)
     @test occursin("id=\"span-locus\"", html)
     @test occursin("id=\"span-kind\"", html)
+    @test occursin("id=\"span-heat\"", html)
     @test occursin("data-kind=\"start\"", html)
     @test occursin("data-kind=\"stop\"", html)
     @test !occursin("data-kind=\"iou\"", html)
     @test !occursin("id=\"span-cat\"", html)
-    @test occursin("IgBLAST unique", html)
+    @test !occursin("id=\"span-plot\"", html)
+    @test occursin("exact vs gold", html)
     @test !occursin("id=\"span-tool\"", html)
     @test occursin("correct vs gold on this edge", html)
     @test occursin("all scored", html)
+    @test occursin("is closer than", html)
+    @test occursin("click a bar to filter MSA", html)
     @test occursin("span-exact-summary", html)
     @test occursin("offset from gold", html)
     @test occursin("reads off vs gold", html)
@@ -485,40 +489,58 @@ end
 
     joint = span_gallery(preds, gold, gp, "p"; n_sample = 10, rng = MersenneTwister(3),
                          tool_order = ["igblast", "swig"])
-    @test length(joint) == 9
+    @test length(joint) == 6
+    @test !any(c -> c["kind"] == "iou", joint)
     start_cell = only(filter(c -> c["locus"] == "v" && c["kind"] == "start", joint))
     @test !haskey(start_cell, "pred")
     @test haskey(start_cell, "tools")
     @test haskey(start_cell["tools"], "igblast")
     @test haskey(start_cell["tools"], "swig")
-    @test start_cell["tools"]["igblast"]["unique_rate"] == 1.0
-    @test start_cell["tools"]["swig"]["unique_rate"] == 0.0
+    @test start_cell["tools"]["igblast"]["n_disagree"] == 1
+    @test start_cell["tools"]["swig"]["n_disagree"] == 0
     @test haskey(start_cell["offsets"], "igblast")
     @test haskey(start_cell["offsets"], "swig")
-    @test haskey(start_cell, "sample_cats")
-    @test start_cell["sample_cats"]["total"]["n"] == 1
-    @test start_cell["sample_cats"]["igblast_unique"]["n"] == 1
-    @test haskey(start_cell["sample_cats"]["igblast_unique"], "offsets")
-    @test start_cell["sample_cats"]["igblast_unique"]["offsets"]["igblast"]["start"]["n"] == 1
-    @test start_cell["sample_cats"]["swig_unique"]["n"] == 0
-    @test start_cell["sample_cats"]["shared"]["n"] == 0
-    @test !isempty(start_cell["sample_cats"]["igblast_unique"]["samples"])
-    @test start_cell["sample_cats"]["igblast_unique"]["samples"][1]["share"] == "igblast_unique"
-    @test occursin("Δstart", start_cell["sample_cats"]["igblast_unique"]["peak"])
-    jids = [r["id"] for r in start_cell["sample_cats"]["igblast_unique"]["samples"][1]["msa"]["rows"]]
+    @test haskey(start_cell, "closer")
+    @test start_cell["closer"]["tools"] == ["igblast", "swig"]
+    @test start_cell["closer"]["exact"][1] == 0.0
+    @test start_cell["closer"]["exact"][2] == 1.0
+    @test start_cell["closer"]["win"][1][2] == 0.0
+    @test start_cell["closer"]["win"][2][1] == 1.0
+    @test start_cell["closer"]["tie"][1][2] == 0.0
+    swig_better = only(filter(c -> c["winner"] == "swig" && c["loser"] == "igblast",
+                              start_cell["contrasts"]))
+    @test swig_better["n"] == 1
+    @test swig_better["n_exact"] == 1
+    @test swig_better["n_closer_wrong"] == 0
+    @test !isempty(swig_better["samples"])
+    @test swig_better["samples"][1]["share"] == "winner_exact"
+    @test occursin("Δstart", swig_better["peak"])
+    @test haskey(swig_better, "offsets")
+    @test haskey(swig_better, "bin_packs")
+    @test swig_better["peak_tool"] == "igblast"
+    @test swig_better["peak_bin"] == "1"
+    @test any(p -> p["tool"] == "igblast" && String(p["bin"]) == "1" && !isempty(p["samples"]),
+              swig_better["bin_packs"])
+    @test any(p -> p["tool"] == "swig" && String(p["bin"]) == "0", swig_better["bin_packs"])
+    @test swig_better["offsets"]["swig"]["start"]["zeros"] == 1
+    @test swig_better["offsets"]["igblast"]["start"]["zeros"] == 0
+    @test swig_better["offsets"]["igblast"]["start"]["n"] == 1
+    jids = [r["id"] for r in swig_better["samples"][1]["msa"]["rows"]]
     @test jids == ["query", "germline", "gold", "igblast", "swig"]
 
     stop_cell = only(filter(c -> c["locus"] == "v" && c["kind"] == "stop", joint))
-    @test stop_cell["sample_cats"]["total"]["n"] == 1
-    @test stop_cell["sample_cats"]["swig_unique"]["n"] == 1
-    @test stop_cell["sample_cats"]["igblast_unique"]["n"] == 0
-    @test stop_cell["sample_cats"]["shared"]["n"] == 0
+    igb_better = only(filter(c -> c["winner"] == "igblast" && c["loser"] == "swig",
+                             stop_cell["contrasts"]))
+    @test igb_better["n"] == 1
+    @test igb_better["n_exact"] == 1
+    @test !isempty(igb_better["samples"])
+    @test occursin("Δstop", igb_better["peak"])
 
     joint_shared = span_gallery(same_wrong, gold, gp, "p"; n_sample = 10,
                                 rng = MersenneTwister(4), tool_order = ["igblast", "swig"])
     sh_start = only(filter(c -> c["locus"] == "v" && c["kind"] == "start", joint_shared))
-    @test sh_start["sample_cats"]["total"]["n"] == 1
-    @test sh_start["sample_cats"]["shared"]["n"] == 1
-    @test sh_start["sample_cats"]["igblast_unique"]["n"] == 0
-    @test sh_start["sample_cats"]["swig_unique"]["n"] == 0
+    @test sh_start["closer"]["tie"][1][2] == 1.0
+    @test sh_start["closer"]["win"][1][2] == 0.0
+    @test sh_start["closer"]["win"][2][1] == 0.0
+    @test all(c -> c["n"] == 0, sh_start["contrasts"])
 end

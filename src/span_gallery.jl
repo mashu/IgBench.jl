@@ -1,4 +1,4 @@
-# span_gallery.jl — Sample start/stop/IoU disagreements onto a shared MSA.
+# span_gallery.jl — Sample start/stop disagreements onto a shared MSA.
 
 const SPAN_SAMPLE_N = 10
 
@@ -210,16 +210,26 @@ function sample_unique_shared(unique_ix, shared_ix, n_sample, rng)
          sample_disagree_indices(shared_ix, n_s, rng))
 end
 
-const SAMPLE_CATS = ("total", "igblast_unique", "swig_unique", "shared")
+function pair_frac(mat, n_scored)
+    nt = size(mat, 1)
+    Any[Any[a == b ? nothing : (n_scored == 0 ? nothing : mat[a, b] / n_scored) for b in 1:nt]
+        for a in 1:nt]
+end
+const CONTRAST_SAMPLE_TOP = 6
+const CONTRAST_SAMPLE_MIN_FRAC = 0.01
+const CONTRAST_BIN_TOP = 3
 
-family_tools(names, fam::AbstractString) =
-    String[t for t in names if tool_family(t) == fam]
+"""Absolute edge error vs gold. Missing spans are worse than any finite offset."""
+function edge_abs_error(kind, pred::Span, gold::Span)
+    d = span_delta(kind, pred, gold)
+    d === nothing && return typemax(Int)
+    abs(Int(d))
+end
 
-function first_mismatch_tool(preds, tools, i, locus, kind, gspan)
-    for t in tools
-        kind_mismatch(kind, record_span(preds[t][i], locus), gspan) && return t
-    end
-    isempty(tools) ? "" : tools[1]
+function contrast_sample_ok(n_win, n_scored, rank)
+    n_win > 0 || return false
+    rank <= CONTRAST_SAMPLE_TOP && return true
+    n_scored > 0 && n_win >= CONTRAST_SAMPLE_MIN_FRAC * n_scored
 end
 
 offset_bin_key(::Val{:start}, pred::Span, gold::Span) = delta_bin_key(span_delta(Val(:start), pred, gold))
@@ -251,82 +261,98 @@ function signed_delta(s::AbstractString)
     n > 0 ? "+$n" : string(n)
 end
 
-"""Largest-bin-first sample so MSA examples match the histogram peaks, not the tails."""
-function sample_modal_indices(ixs, bin_of, n, rng)
-    groups = Dict{String,Vector{Int}}()
-    for i in ixs
-        push!(get!(Vector{Int}, groups, bin_of(i)), i)
-    end
-    isempty(groups) && return Int[], "", 0
-    keys_ord = sort!(collect(keys(groups)); by = k -> (-length(groups[k]), k))
-    peak = keys_ord[1]
-    chosen = Int[]
-    n_want = Int(n)
-    for k in keys_ord
-        remaining = n_want - length(chosen)
-        remaining == 0 && break
-        append!(chosen, sample_disagree_indices(groups[k], remaining, rng))
-    end
-    chosen, peak, length(groups[peak])
+function contrast_share(err_winner)
+    err_winner == 0 ? "winner_exact" : "winner_closer"
 end
 
-function read_sample_flags(preds, names, i, locus, kind, gspan)
-    igb_tools = family_tools(names, "igblast")
-    swig_tools = family_tools(names, "swig")
-    igb = first_mismatch_tool(preds, igb_tools, i, locus, kind, gspan)
-    igb_bad = !isempty(igb) && kind_mismatch(kind, record_span(preds[igb][i], locus), gspan)
-    igb_coord = igb_bad ? span_coord(kind, record_span(preds[igb][i], locus)) : nothing
-    same_wrong = false
-    swig_only = false
-    for t in swig_tools
-        pspan = record_span(preds[t][i], locus)
-        kind_mismatch(kind, pspan, gspan) || continue
-        if igb_bad && span_coord(kind, pspan) == igb_coord
-            same_wrong = true
-        else
-            swig_only = true
-        end
-    end
-    igb_bad && !same_wrong, swig_only, same_wrong
-end
-
-function pack_focus_tools(names, cat)
-    cat == "total" && return names
-    fam = cat == "swig_unique" ? "swig" : "igblast"
-    fam_tools = family_tools(names, fam)
-    isempty(fam_tools) ? names : fam_tools
-end
-
-function build_cat_pack(preds, gold, idx, names, ixs, cat, locus, kind, n_sample, rng)
-    fam_tools = pack_focus_tools(names, cat)
-    fallback = isempty(fam_tools) ? names[1] : fam_tools[1]
-    function bin_of(i)
-        gspan = record_span(gold[i], locus)
-        t = first_mismatch_tool(preds, fam_tools, i, locus, kind, gspan)
-        isempty(t) && (t = fallback)
-        offset_bin_key(kind, record_span(preds[t][i], locus), gspan)
-    end
-    chosen, peak, peak_n = sample_modal_indices(ixs, bin_of, n_sample, rng)
-    samples = Dict{String,Any}[]
-    for i in chosen
-        gspan = record_span(gold[i], locus)
-        focus = first_mismatch_tool(preds, fam_tools, i, locus, kind, gspan)
-        isempty(focus) && (focus = fallback)
-        peers = [(t, preds[t][i]) for t in names]
-        push!(samples, sample_record(gold[i], focus, preds[focus][i], peers, locus, idx;
-                                     share = cat))
+"""MSA examples for reads where `winner` is strictly closer to gold than `loser`."""
+function build_contrast_pack(preds, gold, idx, names, ixs, winner, loser, n_exact, n_closer_wrong,
+                             locus, kind, n_sample, rng; store_samples::Bool = true)
+    winner = String(winner)
+    loser = String(loser)
+    bin_packs = build_bin_packs(preds, gold, idx, names, ixs, winner, loser, locus, kind,
+                                n_sample, rng; store_samples)
+    peak_bin, peak_n = loser_peak_bin(bin_packs, loser)
+    peak_samples = Any[]
+    for p in bin_packs
+        p["tool"] == loser && p["bin"] == peak_bin && (peak_samples = p["samples"])
     end
     Dict{String,Any}(
+        "winner" => winner,
+        "loser" => loser,
         "n" => length(ixs),
-        "n_sample" => length(samples),
-        "peak" => peak == "" ? "" : format_bin_label(kind, peak),
+        "n_exact" => n_exact,
+        "n_closer_wrong" => n_closer_wrong,
+        "n_sample" => length(peak_samples),
+        "peak" => peak_bin == "" ? "" : format_bin_label(kind, peak_bin),
+        "peak_bin" => peak_bin,
+        "peak_tool" => loser,
         "peak_n" => peak_n,
-        "offsets" => cat_offset_hists(preds, gold, names, ixs, locus),
-        "samples" => samples,
+        "offsets" => contrast_offsets(preds, gold, names, ixs, locus),
+        "bin_packs" => bin_packs,
+        "samples" => peak_samples,
     )
 end
 
-function cat_offset_hists(preds, gold, names, ixs, locus)
+function loser_peak_bin(bin_packs, loser)
+    best_k, best_n = "", 0
+    for p in bin_packs
+        p["tool"] == loser || continue
+        n = Int(p["n"])
+        n > best_n || continue
+        best_n = n
+        best_k = String(p["bin"])
+    end
+    best_k, best_n
+end
+
+function contrast_bin_keep(nbin, pair_n, rank)
+    nbin > 0 || return false
+    rank <= CONTRAST_BIN_TOP && return true
+    pair_n > 0 && nbin * 100 >= pair_n
+end
+
+"""Per-tool Δ bins for the heatmap pair, sampled so a hist click can open that offset."""
+function build_bin_packs(preds, gold, idx, names, ixs, winner, loser, locus, kind, n_sample, rng;
+                         store_samples::Bool)
+    groups = Dict{Tuple{String,String},Vector{Int}}()
+    for i in ixs
+        gspan = record_span(gold[i], locus)
+        for t in (winner, loser)
+            k = offset_bin_key(kind, record_span(preds[t][i], locus), gspan)
+            push!(get!(Vector{Int}, groups, (t, k)), i)
+        end
+    end
+    pair_n = length(ixs)
+    packs = Dict{String,Any}[]
+    for t in (winner, loser)
+        bins = Tuple{String,Vector{Int}}[(k, gix) for ((tt, k), gix) in groups if tt == t]
+        sort!(bins; by = b -> (-length(b[2]), b[1]))
+        for (rank, (k, gix)) in enumerate(bins)
+            nbin = length(gix)
+            contrast_bin_keep(nbin, pair_n, rank) || continue
+            samples = Dict{String,Any}[]
+            if store_samples
+                for i in sample_disagree_indices(gix, n_sample, rng)
+                    gspan = record_span(gold[i], locus)
+                    ew = edge_abs_error(kind, record_span(preds[winner][i], locus), gspan)
+                    peers = [(u, preds[u][i]) for u in names]
+                    push!(samples, sample_record(gold[i], loser, preds[loser][i], peers, locus, idx;
+                                                 share = contrast_share(ew)))
+                end
+            end
+            push!(packs, Dict{String,Any}(
+                "tool" => t,
+                "bin" => k,
+                "n" => nbin,
+                "samples" => samples,
+            ))
+        end
+    end
+    packs
+end
+
+function contrast_offsets(preds, gold, names, ixs, locus)
     dstart = Dict{String,Vector{Int}}(t => Int[] for t in names)
     dstop = Dict{String,Vector{Int}}(t => Int[] for t in names)
     miss_start = Dict{String,Int}(t => 0 for t in names)
@@ -403,7 +429,8 @@ One gallery cell: disagreement rate + up to `n_sample` aligned examples.
 `rate` is mean `(1 - score)` over scored gold spans (mismatch fraction for
 start/stop; mean IoU shortfall for `iou`). `unique_rate` / `shared_rate` split
 mismatches into tool-only vs same-wrong-coordinate as the other family
-(IgBLAST vs SWIG).
+(IgBLAST vs SWIG). Per-tool cells still include IoU; joint gallery cells are
+start/stop only and carry a pairwise closer matrix.
 """
 function span_gallery_cell(pred::AbstractVector{CallRecord},
                            gold::AbstractVector{CallRecord},
@@ -546,7 +573,7 @@ function span_gallery(preds::AbstractDict{<:AbstractString,<:AbstractVector{Call
     cells
 end
 
-"""One cell per locus × kind with every tool's rates, shared offsets, and MSA samples."""
+"""One cell per locus × start/stop with every tool's rates, closer matrix, and MSA samples."""
 function span_gallery(preds::AbstractDict{<:AbstractString,<:AbstractVector{CallRecord}},
                       gold::AbstractVector{CallRecord},
                       gp::GermlinePaths,
@@ -558,7 +585,7 @@ function span_gallery(preds::AbstractDict{<:AbstractString,<:AbstractVector{Call
     names = String[String(t) for t in tool_order if haskey(preds, t)]
     cells = Dict{String,Any}[]
     for locus in (Val(:v), Val(:d), Val(:j))
-        for kind in (Val(:start), Val(:stop), Val(:iou))
+        for kind in (Val(:start), Val(:stop))
             push!(cells, span_gallery_joint_cell(preds, gold, idx, panel, names, locus, kind;
                                                  n_sample, rng))
         end
@@ -568,24 +595,25 @@ end
 
 function span_gallery_joint_cell(preds, gold, idx, panel, names, locus, kind;
                                  n_sample::Integer, rng::AbstractRNG)
+    nt = length(names)
     n = 0
     dstart = Dict{String,Vector{Int}}(t => Int[] for t in names)
     dstop = Dict{String,Vector{Int}}(t => Int[] for t in names)
     miss_start = Dict{String,Int}(t => 0 for t in names)
     miss_stop = Dict{String,Int}(t => 0 for t in names)
     n_bad = Dict{String,Int}(t => 0 for t in names)
-    n_shared = Dict{String,Int}(t => 0 for t in names)
+    n_exact_tool = Dict{String,Int}(t => 0 for t in names)
     mass = Dict{String,Float64}(t => 0.0 for t in names)
-    any_bad_ix = Int[]
-    igb_unique_ix = Int[]
-    swig_unique_ix = Int[]
-    shared_ix = Int[]
+    win_ix = [Int[] for _ in 1:nt, _ in 1:nt]
+    n_win_exact = zeros(Int, nt, nt)
+    n_win_closer = zeros(Int, nt, nt)
+    n_tie = zeros(Int, nt, nt)
     for i in eachindex(gold)
         gspan = record_span(gold[i], locus)
         isempty(gspan) && continue
         n += 1
-        any_bad = false
-        for t in names
+        errs = Vector{Int}(undef, nt)
+        for (ti, t) in enumerate(names)
             pspan = record_span(preds[t][i], locus)
             ds = span_delta(Val(:start), pspan, gspan)
             dp = span_delta(Val(:stop), pspan, gspan)
@@ -601,52 +629,54 @@ function span_gallery_joint_cell(preds, gold, idx, panel, names, locus, kind;
             end
             sc = Float64(kind_score(kind, pspan, gspan))
             mass[t] += 1 - sc
-            kind_mismatch(kind, pspan, gspan) || continue
-            any_bad = true
-            n_bad[t] += 1
-            coord = span_coord(kind, pspan)
-            if other_family_shares(preds, names, t, i, locus, kind, coord)
-                n_shared[t] += 1
+            kind_mismatch(kind, pspan, gspan) && (n_bad[t] += 1)
+            errs[ti] = edge_abs_error(kind, pspan, gspan)
+            errs[ti] == 0 && (n_exact_tool[t] += 1)
+        end
+        for a in 1:nt
+            for b in 1:nt
+                a == b && continue
+                if errs[a] < errs[b]
+                    push!(win_ix[a, b], i)
+                    if errs[a] == 0
+                        n_win_exact[a, b] += 1
+                    else
+                        n_win_closer[a, b] += 1
+                    end
+                elseif errs[a] == errs[b]
+                    n_tie[a, b] += 1
+                end
             end
         end
-        any_bad || continue
-        push!(any_bad_ix, i)
-        igb_u, swig_u, same = read_sample_flags(preds, names, i, locus, kind, gspan)
-        igb_u && push!(igb_unique_ix, i)
-        swig_u && push!(swig_unique_ix, i)
-        same && push!(shared_ix, i)
     end
-    cat_ix = Dict{String,Vector{Int}}(
-        "total" => any_bad_ix,
-        "igblast_unique" => igb_unique_ix,
-        "swig_unique" => swig_unique_ix,
-        "shared" => shared_ix,
+    pair_n = Tuple{Int,Int,Int}[(a, b, length(win_ix[a, b])) for a in 1:nt for b in 1:nt if a != b]
+    sort!(pair_n; by = p -> (-p[3], names[p[1]], names[p[2]]))
+    contrasts = Dict{String,Any}[]
+    for (rank, (a, b, nwin)) in enumerate(pair_n)
+        push!(contrasts, build_contrast_pack(preds, gold, idx, names, win_ix[a, b],
+                                             names[a], names[b],
+                                             n_win_exact[a, b], n_win_closer[a, b],
+                                             locus, kind, n_sample, rng;
+                                             store_samples = contrast_sample_ok(nwin, n, rank)))
+    end
+    win_n = [a == b ? 0 : length(win_ix[a, b]) for a in 1:nt, b in 1:nt]
+    closer = Dict{String,Any}(
+        "tools" => names,
+        "exact" => Any[n == 0 ? nothing : n_exact_tool[t] / n for t in names],
+        "win" => pair_frac(win_n, n),
+        "tie" => pair_frac(n_tie, n),
     )
-    sample_cats = Dict{String,Any}()
-    for cat in SAMPLE_CATS
-        sample_cats[cat] = build_cat_pack(preds, gold, idx, names, cat_ix[cat], cat,
-                                          locus, kind, n_sample, rng)
-    end
-    default_samples = sample_cats["total"]["samples"]
-    isempty(default_samples) && (default_samples = sample_cats["igblast_unique"]["samples"])
-    isempty(default_samples) && (default_samples = sample_cats["swig_unique"]["samples"])
-    isempty(default_samples) && (default_samples = sample_cats["shared"]["samples"])
     offsets = Dict{String,Any}()
     tool_stats = Dict{String,Any}()
     for t in names
-        nb = n_bad[t]
-        ns = n_shared[t]
         offsets[t] = Dict{String,Any}(
             "start" => compact_offset_hist(dstart[t], miss_start[t]),
             "stop" => compact_offset_hist(dstop[t], miss_stop[t]),
         )
         tool_stats[t] = Dict{String,Any}(
-            "n_disagree" => nb,
-            "n_unique" => nb - ns,
-            "n_shared" => ns,
+            "n_disagree" => n_bad[t],
+            "n_exact" => n_exact_tool[t],
             "rate" => n == 0 ? NaN : mass[t] / n,
-            "unique_rate" => n == 0 ? NaN : (nb - ns) / n,
-            "shared_rate" => n == 0 ? NaN : ns / n,
         )
     end
     Dict{String,Any}(
@@ -657,7 +687,7 @@ function span_gallery_joint_cell(preds, gold, idx, panel, names, locus, kind;
         "n_sample" => Int(n_sample),
         "tools" => tool_stats,
         "offsets" => offsets,
-        "sample_cats" => sample_cats,
-        "samples" => default_samples,
+        "closer" => closer,
+        "contrasts" => contrasts,
     )
 end
