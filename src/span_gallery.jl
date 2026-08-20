@@ -288,7 +288,7 @@ function build_contrast_pack(preds, gold, idx, names, ixs, winner, loser, n_exac
         "peak_bin" => peak_bin,
         "peak_tool" => loser,
         "peak_n" => peak_n,
-        "offsets" => contrast_offsets(preds, gold, names, ixs, locus),
+        "offsets" => contrast_offsets(preds, gold, (winner, loser), ixs, locus),
         "bin_packs" => bin_packs,
         "samples" => peak_samples,
     )
@@ -330,9 +330,9 @@ function build_bin_packs(preds, gold, idx, names, ixs, winner, loser, locus, kin
         sort!(bins; by = b -> (-length(b[2]), b[1]))
         for (rank, (k, gix)) in enumerate(bins)
             nbin = length(gix)
-            contrast_bin_keep(nbin, pair_n, rank) || continue
+            nbin > 0 || continue
             samples = Dict{String,Any}[]
-            if store_samples
+            if store_samples && contrast_bin_keep(nbin, pair_n, rank)
                 for i in sample_disagree_indices(gix, n_sample, rng)
                     gspan = record_span(gold[i], locus)
                     ew = edge_abs_error(kind, record_span(preds[winner][i], locus), gspan)

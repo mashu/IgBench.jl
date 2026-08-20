@@ -184,7 +184,8 @@ end
     @test occursin("correct vs gold on this edge", html)
     @test occursin("all scored", html)
     @test occursin("is closer than", html)
-    @test occursin("click a bar to filter MSA", html)
+    @test occursin("bar to filter MSA to that", html)
+    @test occursin("is not in this pair", html)
     @test occursin("span-exact-summary", html)
     @test occursin("offset from gold", html)
     @test occursin("reads off vs gold", html)
@@ -522,6 +523,7 @@ end
     @test any(p -> p["tool"] == "igblast" && String(p["bin"]) == "1" && !isempty(p["samples"]),
               swig_better["bin_packs"])
     @test any(p -> p["tool"] == "swig" && String(p["bin"]) == "0", swig_better["bin_packs"])
+    @test sort(collect(keys(swig_better["offsets"]))) == ["igblast", "swig"]
     @test swig_better["offsets"]["swig"]["start"]["zeros"] == 1
     @test swig_better["offsets"]["igblast"]["start"]["zeros"] == 0
     @test swig_better["offsets"]["igblast"]["start"]["n"] == 1
@@ -535,6 +537,18 @@ end
     @test igb_better["n_exact"] == 1
     @test !isempty(igb_better["samples"])
     @test occursin("Δstop", igb_better["peak"])
+
+    other = CallRecord[CallRecord("s1", vseq, "IGHV1-1*01", "IGHD1-1*01", "IGHJ1*01",
+                                  Span(3, 8), Span(9, 10), Span(11, 12))]
+    preds3 = Dict{String,Vector{CallRecord}}("igblast" => igb, "swig" => swig, "other" => other)
+    joint3 = span_gallery(preds3, gold, gp, "p"; n_sample = 10, rng = MersenneTwister(5),
+                          tool_order = ["igblast", "swig", "other"])
+    start3 = only(filter(c -> c["locus"] == "v" && c["kind"] == "start", joint3))
+    @test haskey(start3["offsets"], "other")
+    swig_vs_igb = only(filter(c -> c["winner"] == "swig" && c["loser"] == "igblast",
+                              start3["contrasts"]))
+    @test sort(collect(keys(swig_vs_igb["offsets"]))) == ["igblast", "swig"]
+    @test all(p -> p["tool"] == "igblast" || p["tool"] == "swig", swig_vs_igb["bin_packs"])
 
     joint_shared = span_gallery(same_wrong, gold, gp, "p"; n_sample = 10,
                                 rng = MersenneTwister(4), tool_order = ["igblast", "swig"])

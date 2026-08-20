@@ -828,6 +828,38 @@
         return null;
       }
 
+      function offsetBinCount(offs, tool, bin, kind) {
+        const h = offs && offs[tool] && offs[tool][kind];
+        if (!h) return 0;
+        if (bin === "miss") return h.missing || 0;
+        if (String(bin) === "0") return h.zeros || 0;
+        const want = String(bin);
+        const rows = h.bins || [];
+        for (let i = 0; i < rows.length; i++) {
+          if (String(rows[i][0]) === want) return rows[i][1] || 0;
+        }
+        return 0;
+      }
+
+      function emptyBinMessage(pack, binPack, winner, loser, tool, bin, kind) {
+        if (!(pack && pack.n)) {
+          return winner + " is never closer than " + loser + " on this edge.";
+        }
+        if (tool == null || bin == null || bin === "") {
+          return "Click a Δ bar to unfold alignments for that offset. Peak mass is selected by default.";
+        }
+        const nBin = (binPack && binPack.n) || offsetBinCount(pack.offsets, tool, bin, kind);
+        const inPair = tool === winner || tool === loser;
+        if (!inPair) {
+          return tool + " is not in this pair. Click a " + winner + " or " + loser + " bar.";
+        }
+        if (nBin) {
+          return "No MSA examples stored for " + tool + " " + binPhrase(bin, kind) +
+            " (" + nBin + " reads in this bin).";
+        }
+        return "Click a Δ bar to unfold alignments for that offset. Peak mass is selected by default.";
+      }
+
       function binPhrase(bin, kind) {
         if (bin === "miss") return "missing " + kind;
         if (String(bin) === "0") return "Δ" + kind + " 0 (exact)";
@@ -984,6 +1016,7 @@
         title.textContent = bits.join(" — ");
         const pairOffs = pack && pack.n && pack.offsets;
         const histClick = pairOffs ? {
+          tools: [spanWinner, spanLoser],
           selected: (spanBinTool != null && spanBin != null && spanBin !== "")
             ? { tool: spanBinTool, bin: spanBin } : null,
           onBar: function (hit) {
@@ -995,7 +1028,8 @@
         if (pairOffs) {
           renderOffsetPlots(pairOffs, pack.n, kind,
             "Δ " + kind + " vs gold · " + pack.n + " reads where " + spanWinner +
-            " is closer than " + spanLoser + " · click a bar to filter MSA to that Δ",
+            " is closer than " + spanLoser + " · click a " + spanWinner + " or " +
+            spanLoser + " bar to filter MSA to that Δ",
             histClick);
         } else {
           renderOffsetPlots(cell.offsets || {}, cell.n_scored, kind,
@@ -1014,15 +1048,8 @@
         const msaHead = document.getElementById("span-msa-head");
         if (msaHead) msaHead.textContent = contrastCaption(cell, spanWinner, spanLoser);
         if (!samples.length) {
-          const nBin = binPack && binPack.n;
-          pairs.replaceChildren(emptyNote(
-            nBin
-              ? "No MSA examples stored for " + spanBinTool + " " + binPhrase(spanBin, kind) +
-                " (" + nBin + " reads in this bin)."
-              : pack && pack.n
-                ? "Click a Δ bar to unfold alignments for that offset. Peak mass is selected by default."
-                : spanWinner + " is never closer than " + spanLoser + " on this edge."
-          ));
+          pairs.replaceChildren(emptyNote(emptyBinMessage(pack, binPack, spanWinner, spanLoser,
+            spanBinTool, spanBin, kind)));
           document.getElementById("aln-legend").hidden = true;
           if (opt.scroll) offsetWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
           return;
@@ -1040,7 +1067,10 @@
         const wrap = document.getElementById("span-offset");
         offs = offs || {};
         clickOpt = clickOpt || {};
-        const names = (tools.length ? tools : Object.keys(offs)).filter(function (t) {
+        const nameSrc = (clickOpt.tools && clickOpt.tools.length)
+          ? clickOpt.tools
+          : (tools.length ? tools : Object.keys(offs));
+        const names = nameSrc.filter(function (t) {
           return offs[t];
         });
         const lab = document.getElementById("span-offset-lab");
