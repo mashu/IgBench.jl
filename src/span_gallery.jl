@@ -210,8 +210,153 @@ function sample_unique_shared(unique_ix, shared_ix, n_sample, rng)
          sample_disagree_indices(shared_ix, n_s, rng))
 end
 
-function span_stop_pos(sp::Span)
-    isempty(sp) ? 0 : sp.stop
+const SAMPLE_CATS = ("total", "igblast_unique", "swig_unique", "shared")
+
+family_tools(names, fam::AbstractString) =
+    String[t for t in names if tool_family(t) == fam]
+
+function first_mismatch_tool(preds, tools, i, locus, kind, gspan)
+    for t in tools
+        kind_mismatch(kind, record_span(preds[t][i], locus), gspan) && return t
+    end
+    isempty(tools) ? "" : tools[1]
+end
+
+offset_bin_key(::Val{:start}, pred::Span, gold::Span) = delta_bin_key(span_delta(Val(:start), pred, gold))
+offset_bin_key(::Val{:stop}, pred::Span, gold::Span) = delta_bin_key(span_delta(Val(:stop), pred, gold))
+function offset_bin_key(::Val{:iou}, pred::Span, gold::Span)
+    delta_bin_key(span_delta(Val(:start), pred, gold)) * "," *
+        delta_bin_key(span_delta(Val(:stop), pred, gold))
+end
+
+delta_bin_key(::Nothing) = "miss"
+delta_bin_key(d::Integer) = string(d)
+
+function format_bin_label(::Val{:start}, key::AbstractString)
+    key == "miss" ? "missing start" : "Δstart $(signed_delta(key))"
+end
+function format_bin_label(::Val{:stop}, key::AbstractString)
+    key == "miss" ? "missing stop" : "Δstop $(signed_delta(key))"
+end
+function format_bin_label(::Val{:iou}, key::AbstractString)
+    parts = split(String(key), ',')
+    length(parts) == 2 || return String(key)
+    "Δstart $(signed_delta(parts[1])), Δstop $(signed_delta(parts[2]))"
+end
+
+function signed_delta(s::AbstractString)
+    s == "miss" && return "miss"
+    n = tryparse(Int, s)
+    n === nothing && return s
+    n > 0 ? "+$n" : string(n)
+end
+
+"""Largest-bin-first sample so MSA examples match the histogram peaks, not the tails."""
+function sample_modal_indices(ixs, bin_of, n, rng)
+    groups = Dict{String,Vector{Int}}()
+    for i in ixs
+        push!(get!(Vector{Int}, groups, bin_of(i)), i)
+    end
+    isempty(groups) && return Int[], "", 0
+    keys_ord = sort!(collect(keys(groups)); by = k -> (-length(groups[k]), k))
+    peak = keys_ord[1]
+    chosen = Int[]
+    n_want = Int(n)
+    for k in keys_ord
+        remaining = n_want - length(chosen)
+        remaining == 0 && break
+        append!(chosen, sample_disagree_indices(groups[k], remaining, rng))
+    end
+    chosen, peak, length(groups[peak])
+end
+
+function read_sample_flags(preds, names, i, locus, kind, gspan)
+    igb_tools = family_tools(names, "igblast")
+    swig_tools = family_tools(names, "swig")
+    igb = first_mismatch_tool(preds, igb_tools, i, locus, kind, gspan)
+    igb_bad = !isempty(igb) && kind_mismatch(kind, record_span(preds[igb][i], locus), gspan)
+    igb_coord = igb_bad ? span_coord(kind, record_span(preds[igb][i], locus)) : nothing
+    same_wrong = false
+    swig_only = false
+    for t in swig_tools
+        pspan = record_span(preds[t][i], locus)
+        kind_mismatch(kind, pspan, gspan) || continue
+        if igb_bad && span_coord(kind, pspan) == igb_coord
+            same_wrong = true
+        else
+            swig_only = true
+        end
+    end
+    igb_bad && !same_wrong, swig_only, same_wrong
+end
+
+function pack_focus_tools(names, cat)
+    cat == "total" && return names
+    fam = cat == "swig_unique" ? "swig" : "igblast"
+    fam_tools = family_tools(names, fam)
+    isempty(fam_tools) ? names : fam_tools
+end
+
+function build_cat_pack(preds, gold, idx, names, ixs, cat, locus, kind, n_sample, rng)
+    fam_tools = pack_focus_tools(names, cat)
+    fallback = isempty(fam_tools) ? names[1] : fam_tools[1]
+    function bin_of(i)
+        gspan = record_span(gold[i], locus)
+        t = first_mismatch_tool(preds, fam_tools, i, locus, kind, gspan)
+        isempty(t) && (t = fallback)
+        offset_bin_key(kind, record_span(preds[t][i], locus), gspan)
+    end
+    chosen, peak, peak_n = sample_modal_indices(ixs, bin_of, n_sample, rng)
+    samples = Dict{String,Any}[]
+    for i in chosen
+        gspan = record_span(gold[i], locus)
+        focus = first_mismatch_tool(preds, fam_tools, i, locus, kind, gspan)
+        isempty(focus) && (focus = fallback)
+        peers = [(t, preds[t][i]) for t in names]
+        push!(samples, sample_record(gold[i], focus, preds[focus][i], peers, locus, idx;
+                                     share = cat))
+    end
+    Dict{String,Any}(
+        "n" => length(ixs),
+        "n_sample" => length(samples),
+        "peak" => peak == "" ? "" : format_bin_label(kind, peak),
+        "peak_n" => peak_n,
+        "offsets" => cat_offset_hists(preds, gold, names, ixs, locus),
+        "samples" => samples,
+    )
+end
+
+function cat_offset_hists(preds, gold, names, ixs, locus)
+    dstart = Dict{String,Vector{Int}}(t => Int[] for t in names)
+    dstop = Dict{String,Vector{Int}}(t => Int[] for t in names)
+    miss_start = Dict{String,Int}(t => 0 for t in names)
+    miss_stop = Dict{String,Int}(t => 0 for t in names)
+    for i in ixs
+        gspan = record_span(gold[i], locus)
+        for t in names
+            pspan = record_span(preds[t][i], locus)
+            ds = span_delta(Val(:start), pspan, gspan)
+            dp = span_delta(Val(:stop), pspan, gspan)
+            if isnothing(ds)
+                miss_start[t] += 1
+            else
+                push!(dstart[t], ds)
+            end
+            if isnothing(dp)
+                miss_stop[t] += 1
+            else
+                push!(dstop[t], dp)
+            end
+        end
+    end
+    Dict{String,Any}(t => Dict{String,Any}(
+        "start" => compact_offset_hist(dstart[t], miss_start[t]),
+        "stop" => compact_offset_hist(dstop[t], miss_stop[t]),
+    ) for t in names)
+end
+
+function span_bounds(sp::Span)
+    isempty(sp) ? (0, 0) : (sp.start, sp.stop)
 end
 
 function sample_record(gold::CallRecord, focus::AbstractString, pred::CallRecord,
@@ -224,10 +369,13 @@ function sample_record(gold::CallRecord, focus::AbstractString, pred::CallRecord
     gname, gseq = lookup_germline(idx, gcall)
     pname, pseq = lookup_germline(idx, pcall)
     iou = span_iou(pspan, gspan)
-    trims = Tuple{String,Int,String}[("gold", span_stop_pos(gspan), gcall)]
+    gs, ge = span_bounds(gspan)
+    trims = Tuple{String,Int,Int,String}[("gold", gs, ge, gcall)]
+    tool_spans = Dict{String,Any}()
     for (tname, rec) in peers
-        tsp = record_span(rec, locus)
-        push!(trims, (String(tname), span_stop_pos(tsp), record_call(rec, locus)))
+        ts, te = span_bounds(record_span(rec, locus))
+        push!(trims, (String(tname), ts, te, record_call(rec, locus)))
+        tool_spans[String(tname)] = ts == 0 ? Int[] : Int[ts, te]
     end
     Dict{String,Any}(
         "sequence_id" => gold.sequence_id,
@@ -235,8 +383,9 @@ function sample_record(gold::CallRecord, focus::AbstractString, pred::CallRecord
         "pred_call" => pcall,
         "gold_gl" => gname,
         "pred_gl" => pname,
-        "gold_span" => isempty(gspan) ? Int[] : Int[gspan.start, gspan.stop],
+        "gold_span" => gs == 0 ? Int[] : Int[gs, ge],
         "pred_span" => isempty(pspan) ? Int[] : Int[pspan.start, pspan.stop],
+        "tool_spans" => tool_spans,
         "delta_start" => (isempty(pspan) || isempty(gspan)) ? nothing : pspan.start - gspan.start,
         "delta_stop" => (isempty(pspan) || isempty(gspan)) ? nothing : pspan.stop - gspan.stop,
         "iou" => isnan(iou) ? nothing : iou,
@@ -395,4 +544,120 @@ function span_gallery(preds::AbstractDict{<:AbstractString,<:AbstractVector{Call
         end
     end
     cells
+end
+
+"""One cell per locus × kind with every tool's rates, shared offsets, and MSA samples."""
+function span_gallery(preds::AbstractDict{<:AbstractString,<:AbstractVector{CallRecord}},
+                      gold::AbstractVector{CallRecord},
+                      gp::GermlinePaths,
+                      panel::AbstractString;
+                      n_sample::Integer = SPAN_SAMPLE_N,
+                      rng::AbstractRNG = Random.default_rng(),
+                      tool_order = sort!(collect(String.(keys(preds)))))
+    idx = germline_sequence_index(gp)
+    names = String[String(t) for t in tool_order if haskey(preds, t)]
+    cells = Dict{String,Any}[]
+    for locus in (Val(:v), Val(:d), Val(:j))
+        for kind in (Val(:start), Val(:stop), Val(:iou))
+            push!(cells, span_gallery_joint_cell(preds, gold, idx, panel, names, locus, kind;
+                                                 n_sample, rng))
+        end
+    end
+    cells
+end
+
+function span_gallery_joint_cell(preds, gold, idx, panel, names, locus, kind;
+                                 n_sample::Integer, rng::AbstractRNG)
+    n = 0
+    dstart = Dict{String,Vector{Int}}(t => Int[] for t in names)
+    dstop = Dict{String,Vector{Int}}(t => Int[] for t in names)
+    miss_start = Dict{String,Int}(t => 0 for t in names)
+    miss_stop = Dict{String,Int}(t => 0 for t in names)
+    n_bad = Dict{String,Int}(t => 0 for t in names)
+    n_shared = Dict{String,Int}(t => 0 for t in names)
+    mass = Dict{String,Float64}(t => 0.0 for t in names)
+    any_bad_ix = Int[]
+    igb_unique_ix = Int[]
+    swig_unique_ix = Int[]
+    shared_ix = Int[]
+    for i in eachindex(gold)
+        gspan = record_span(gold[i], locus)
+        isempty(gspan) && continue
+        n += 1
+        any_bad = false
+        for t in names
+            pspan = record_span(preds[t][i], locus)
+            ds = span_delta(Val(:start), pspan, gspan)
+            dp = span_delta(Val(:stop), pspan, gspan)
+            if isnothing(ds)
+                miss_start[t] += 1
+            else
+                push!(dstart[t], ds)
+            end
+            if isnothing(dp)
+                miss_stop[t] += 1
+            else
+                push!(dstop[t], dp)
+            end
+            sc = Float64(kind_score(kind, pspan, gspan))
+            mass[t] += 1 - sc
+            kind_mismatch(kind, pspan, gspan) || continue
+            any_bad = true
+            n_bad[t] += 1
+            coord = span_coord(kind, pspan)
+            if other_family_shares(preds, names, t, i, locus, kind, coord)
+                n_shared[t] += 1
+            end
+        end
+        any_bad || continue
+        push!(any_bad_ix, i)
+        igb_u, swig_u, same = read_sample_flags(preds, names, i, locus, kind, gspan)
+        igb_u && push!(igb_unique_ix, i)
+        swig_u && push!(swig_unique_ix, i)
+        same && push!(shared_ix, i)
+    end
+    cat_ix = Dict{String,Vector{Int}}(
+        "total" => any_bad_ix,
+        "igblast_unique" => igb_unique_ix,
+        "swig_unique" => swig_unique_ix,
+        "shared" => shared_ix,
+    )
+    sample_cats = Dict{String,Any}()
+    for cat in SAMPLE_CATS
+        sample_cats[cat] = build_cat_pack(preds, gold, idx, names, cat_ix[cat], cat,
+                                          locus, kind, n_sample, rng)
+    end
+    default_samples = sample_cats["total"]["samples"]
+    isempty(default_samples) && (default_samples = sample_cats["igblast_unique"]["samples"])
+    isempty(default_samples) && (default_samples = sample_cats["swig_unique"]["samples"])
+    isempty(default_samples) && (default_samples = sample_cats["shared"]["samples"])
+    offsets = Dict{String,Any}()
+    tool_stats = Dict{String,Any}()
+    for t in names
+        nb = n_bad[t]
+        ns = n_shared[t]
+        offsets[t] = Dict{String,Any}(
+            "start" => compact_offset_hist(dstart[t], miss_start[t]),
+            "stop" => compact_offset_hist(dstop[t], miss_stop[t]),
+        )
+        tool_stats[t] = Dict{String,Any}(
+            "n_disagree" => nb,
+            "n_unique" => nb - ns,
+            "n_shared" => ns,
+            "rate" => n == 0 ? NaN : mass[t] / n,
+            "unique_rate" => n == 0 ? NaN : (nb - ns) / n,
+            "shared_rate" => n == 0 ? NaN : ns / n,
+        )
+    end
+    Dict{String,Any}(
+        "panel" => String(panel),
+        "locus" => locus_key(locus),
+        "kind" => kind_key(kind),
+        "n_scored" => n,
+        "n_sample" => Int(n_sample),
+        "tools" => tool_stats,
+        "offsets" => offsets,
+        "sample_cats" => sample_cats,
+        "samples" => default_samples,
+    )
 end

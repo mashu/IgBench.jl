@@ -1,27 +1,24 @@
-# Compare IgBLAST vs swig-cli RIAT-MP and AER on an IgSim gold panel,
-# plus a D-ablation copy of the same panel (90% of gold D remnants spliced out).
+# Compare IgBLAST vs swig-cli RIAT-MP and AER on one IgSim gold panel.
 #
-# Annotated grid only: IgBLAST + aux, swig-cli v0.37.2 with prepare-reference.
-# Assignment-only and v0.34.0 are omitted (same calls, slower).
+# Annotated grid: IgBLAST + aux, swig-cli v0.37.2 with prepare-reference.
+# All three tools are timed and scored on the same reads (allele + spans).
 #
 # IgSim is GitHub `main` (https://github.com/mashu/IgSim.jl). This script
 # only overrides `indel_rate` (default 0.3% of reads).
 #
-# Tools (each is annotated once per panel and timed):
+# Tools (each is annotated once and timed):
 #   igblast-aux      IgBLAST + J/CDR3 aux
 #   swig-riat-prep   v0.37.2 --assigner riat_mp --prepared-reference
 #   swig-aer-prep    v0.37.2 --assigner aer --prepared-reference
 #
 #   export IGBENCH_V=... IGBENCH_D=... IGBENCH_J=... IGBENCH_AUX=...
-#   export IGBENCH_N=100000 IGBENCH_THREADS=8
-#   export IGBENCH_DROP_D=0.9
+#   export IGBENCH_N=20000 IGBENCH_THREADS=8
 #   export IGBENCH_INDEL_P=0.003
 #   julia --project=. examples/compare_igblast_swig.jl
 
 using IgBench
 using IgSim
 using Downloads
-using JSON
 
 const DEFAULT_V = "/home/mateusz/Mac-IgBLAST/data/Macaca_mulatta_V.fasta"
 const DEFAULT_D = "/home/mateusz/Mac-IgBLAST/data/Macaca_mulatta_D.fasta"
@@ -30,14 +27,14 @@ const DEFAULT_AUX = "/home/mateusz/Mac-IgBLAST/data/rhesus_monkey_gl.aux"
 
 const ROOT = dirname(@__DIR__)
 const SWIG_VERSION = get(ENV, "SWIG_NEW", "0.37.2")
-const N = parse(Int, get(ENV, "IGBENCH_N", "100000"))
+const N = parse(Int, get(ENV, "IGBENCH_N", "20000"))
 const THREADS = parse(Int, get(ENV, "IGBENCH_THREADS", "8"))
-const DROP_D = parse(Float64, get(ENV, "IGBENCH_DROP_D", "0.9"))
 const INDEL_P = parse(Float64, get(ENV, "IGBENCH_INDEL_P", "0.003"))
 const ORGANISM = get(ENV, "IGBENCH_ORGANISM", "rhesus_monkey")
 const SPECIES = get(ENV, "IGBENCH_SPECIES", "rhesus")
 const AUX = get(ENV, "IGBENCH_AUX", DEFAULT_AUX)
 const OUT = get(ENV, "IGBENCH_OUT", joinpath(ROOT, "runs", "full", "igblast_swig"))
+const PANEL_ID = "sim_igsim_indelp$(INDEL_P)_n$(N)"
 
 function comparison_params()
     (0 <= INDEL_P <= 1) || error("IGBENCH_INDEL_P must be in [0, 1], got $INDEL_P")
@@ -93,65 +90,26 @@ function ensure_prepared_reference(bin, gp::GermlinePaths, organism::AbstractStr
     manifest
 end
 
-function merge_timing_rows(saved, new_rows)
-    by = Dict{Tuple{String,String},Any}()
-    for t in saved
-        by[(String(t["panel"]), String(t["tool"]))] = t
-    end
-    for row in new_rows
-        by[(String(row["panel"]), String(row["tool"]))] = row
-    end
-    keys_sorted = sort!(collect(keys(by)))
-    Dict{String,Any}[by[k] for k in keys_sorted]
-end
-
-function restore_saved_timing!(store, result, saved)
-    out = merge_timing_rows(saved, result.timing)
-    IgBench.write_timing!(store, out)
-    gallery_path = joinpath(store.root, "span_gallery.json")
-    gallery = isfile(gallery_path) ? JSON.parsefile(gallery_path) : Any[]
-    manifest = JSON.parsefile(joinpath(store.root, "manifest.json"))
-    payload = Dict{String,Any}(
-        "schema_version" => SCHEMA_VERSION,
-        "suite" => result.name,
-        "mode" => result.mode,
-        "step" => result.step,
-        "tags" => result.tags,
-        "tools" => manifest["tools"],
-        "panels" => JSON.parsefile(joinpath(store.root, "panels.json")),
-        "metrics" => result.metrics,
-        "timing" => out,
-        "span_gallery" => gallery,
-    )
-    IgBench.write_report_if_full(FullReportMode(), store, payload)
-    out
-end
-
 function print_allele_by_panel(metrics)
     rows = [r for r in metrics if r["metric"] == "allele" && String(r["ref"]) == ":gold"]
     isempty(rows) && return
     panels = unique(String(r["panel"]) for r in rows)
     println()
     println("allele vs gold")
-    println(rpad("tool", 18), join((rpad(p, 36) for p in panels), " "), "  ΔV (pp)")
+    println(rpad("tool", 18), join((rpad(p, 36) for p in panels), " "))
     tools = unique(String(r["pred"]) for r in rows)
     for tool in tools
         print(rpad(tool, 18))
-        vs = Float64[]
         for p in panels
             found = false
             for r in rows
                 String(r["panel"]) == p && String(r["pred"]) == tool || continue
                 cell = "V=$(round(100 * Float64(r["v"]); digits=2)) D=$(round(100 * Float64(r["d"]); digits=2)) J=$(round(100 * Float64(r["j"]); digits=2))"
                 print(rpad(cell, 36))
-                push!(vs, Float64(r["v"]))
                 found = true
                 break
             end
             found || print(rpad("—", 36))
-        end
-        if length(vs) == 2
-            print("  ", round(100 * (vs[2] - vs[1]); digits = 2))
         end
         println()
     end
@@ -164,8 +122,8 @@ println("V ", get(ENV, "IGBENCH_V", DEFAULT_V))
 println("D ", get(ENV, "IGBENCH_D", DEFAULT_D))
 println("J ", get(ENV, "IGBENCH_J", DEFAULT_J))
 println("aux ", AUX)
+println("n ", N)
 println("threads ", THREADS)
-println("drop_d_frac ", DROP_D)
 println("indel_p ", INDEL_P, " (", round(100 * INDEL_P; digits = 2), "% of reads)")
 println("IgSim ", pkgdir(IgSim))
 
@@ -176,7 +134,7 @@ gp = GermlinePaths(;
 )
 
 man = DatasetManifest("igblast_swig";
-    sim = [SimSource(; id = "sim_igsim_indelp$(INDEL_P)", db_label = "assign", germline = gp,
+    sim = [SimSource(; id = PANEL_ID, db_label = "assign", germline = gp,
                      species = SPECIES, n = N, seed = 1,
                      params_factory = comparison_params)],
     airr = AirrSource[],
@@ -196,11 +154,6 @@ PREP = ensure_prepared_reference(BIN, gp, ORGANISM)
 println("prepared-reference ", PREP)
 isfile(AUX) || error("IGBENCH_AUX is not a file: $AUX")
 
-current_tools = Set(["igblast-aux", "swig-riat-prep", "swig-aer-prep"])
-saved_timing = isfile(joinpath(OUT, "timing.json")) ?
-    filter(t -> String(t["tool"]) in current_tools,
-           JSON.parsefile(joinpath(OUT, "timing.json"))) : Any[]
-
 tools = AbstractAnnotator[
     IgBLASTAnnotator(; name = "igblast-aux", organism_param = ORGANISM,
                      aux = AUX, num_threads = THREADS),
@@ -209,17 +162,16 @@ tools = AbstractAnnotator[
 ]
 
 store = DirectoryRunStore(OUT)
-suite = suite_from_manifest(man, tools; drop_d_frac = DROP_D)
+suite = suite_from_manifest(man, tools)
 result = run_suite(suite;
                    mode = FullReportMode(),
                    store,
-                   cache = PanelCache(joinpath(OUT, "panel_cache_igsim_indelp$(INDEL_P)")),
+                   cache = PanelCache(joinpath(OUT, "panel_cache_$PANEL_ID")),
                    reuse_predictions = true)
-timing = restore_saved_timing!(store, result, saved_timing)
 println("wrote $(length(result.metrics)) metric rows → $(result.store_path)")
 println("tools: ", join(tool_name.(tools), ", "))
 print_allele_by_panel(result.metrics)
-for t in timing
+for t in result.timing
     println(t["panel"], "  ", t["tool"], "  ", round(Float64(t["wall_s"]); digits = 3), " s  ",
             round(Float64(t["seq_per_s"]); digits = 1), " seq/s")
 end

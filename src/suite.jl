@@ -178,13 +178,12 @@ function run_suite(suite::BenchSuite;
                 push!(metric_rows, row)
                 nested[data.id][key][metric_name(m)] = metric_dict(mv)
             end
-            if want_gallery && cmp.ref_tool == ":gold"
-                rng = MersenneTwister(hash((data.id, cmp.pred_tool)))
-                tool_order = [tool_name(t) for t in suite.tools]
-                append!(gallery_rows, span_gallery(preds, ref, data.germline,
-                                                   data.id, cmp.pred_tool;
-                                                   rng, tool_order))
-            end
+        end
+        if want_gallery && !isnothing(data.gold) && !isempty(preds)
+            rng = MersenneTwister(hash(data.id))
+            tool_order = [tool_name(t) for t in suite.tools]
+            append!(gallery_rows, span_gallery(preds, data.gold, data.germline, data.id;
+                                               rng, tool_order))
         end
     end
 

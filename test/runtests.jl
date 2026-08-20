@@ -168,10 +168,23 @@ end
     @test occursin("window.IGBENCH", html)
     @test occursin("span_gallery", html)
     @test occursin("Span disagreement vs gold", html)
-    @test occursin("trimmed after locus end", html)
+    @test occursin("outside this row", html)
     @test occursin("fillMsa", html)
-    @test occursin("unique to this tool", html)
-    @test occursin("offsetDensitySvg", html)
+    @test occursin("same wrong coordinate", html)
+    @test occursin("id=\"span-locus\"", html)
+    @test occursin("id=\"span-kind\"", html)
+    @test occursin("data-kind=\"start\"", html)
+    @test occursin("data-kind=\"stop\"", html)
+    @test !occursin("data-kind=\"iou\"", html)
+    @test !occursin("id=\"span-cat\"", html)
+    @test occursin("IgBLAST unique", html)
+    @test !occursin("id=\"span-tool\"", html)
+    @test occursin("correct vs gold on this edge", html)
+    @test occursin("all scored", html)
+    @test occursin("span-exact-summary", html)
+    @test occursin("offset from gold", html)
+    @test occursin("reads off vs gold", html)
+    @test !occursin("offsetDensitySvg", html)
     @test !occursin("__IGBENCH_DATA__", html)
     @test !isempty(result.timing)
     @test haskey(result.timing[1], "wall_s")
@@ -447,8 +460,13 @@ end
     @test gold_row["stop"] == 8
     @test igb_row["stop"] == 8
     @test swig_row["stop"] == 10
+    @test gold_row["start"] == 1
+    @test igb_row["start"] == 2
+    @test swig_row["start"] == 1
     @test replace(gold_row["seq"], "-" => "") == vseq[1:8]
+    @test replace(igb_row["seq"], "-" => "") == vseq[2:8]
     @test replace(swig_row["seq"], "-" => "") == vseq[1:10]
+    @test count(==('-'), igb_row["seq"]) > count(==('-'), gold_row["seq"])
     @test count(==('-'), swig_row["seq"]) < count(==('-'), gold_row["seq"])
 
     both = CallRecord[CallRecord("s1", vseq, "IGHV1-1*01", "IGHD1-1*01", "IGHJ1*01",
@@ -464,4 +482,43 @@ end
     cells = span_gallery(igb, gold, gp, "p", "tool"; n_sample = 10, rng = MersenneTwister(2))
     @test length(cells) == 9
     @test any(c -> c["kind"] == "stop" && c["locus"] == "v" && c["n_disagree"] == 0, cells)
+
+    joint = span_gallery(preds, gold, gp, "p"; n_sample = 10, rng = MersenneTwister(3),
+                         tool_order = ["igblast", "swig"])
+    @test length(joint) == 9
+    start_cell = only(filter(c -> c["locus"] == "v" && c["kind"] == "start", joint))
+    @test !haskey(start_cell, "pred")
+    @test haskey(start_cell, "tools")
+    @test haskey(start_cell["tools"], "igblast")
+    @test haskey(start_cell["tools"], "swig")
+    @test start_cell["tools"]["igblast"]["unique_rate"] == 1.0
+    @test start_cell["tools"]["swig"]["unique_rate"] == 0.0
+    @test haskey(start_cell["offsets"], "igblast")
+    @test haskey(start_cell["offsets"], "swig")
+    @test haskey(start_cell, "sample_cats")
+    @test start_cell["sample_cats"]["total"]["n"] == 1
+    @test start_cell["sample_cats"]["igblast_unique"]["n"] == 1
+    @test haskey(start_cell["sample_cats"]["igblast_unique"], "offsets")
+    @test start_cell["sample_cats"]["igblast_unique"]["offsets"]["igblast"]["start"]["n"] == 1
+    @test start_cell["sample_cats"]["swig_unique"]["n"] == 0
+    @test start_cell["sample_cats"]["shared"]["n"] == 0
+    @test !isempty(start_cell["sample_cats"]["igblast_unique"]["samples"])
+    @test start_cell["sample_cats"]["igblast_unique"]["samples"][1]["share"] == "igblast_unique"
+    @test occursin("Δstart", start_cell["sample_cats"]["igblast_unique"]["peak"])
+    jids = [r["id"] for r in start_cell["sample_cats"]["igblast_unique"]["samples"][1]["msa"]["rows"]]
+    @test jids == ["query", "germline", "gold", "igblast", "swig"]
+
+    stop_cell = only(filter(c -> c["locus"] == "v" && c["kind"] == "stop", joint))
+    @test stop_cell["sample_cats"]["total"]["n"] == 1
+    @test stop_cell["sample_cats"]["swig_unique"]["n"] == 1
+    @test stop_cell["sample_cats"]["igblast_unique"]["n"] == 0
+    @test stop_cell["sample_cats"]["shared"]["n"] == 0
+
+    joint_shared = span_gallery(same_wrong, gold, gp, "p"; n_sample = 10,
+                                rng = MersenneTwister(4), tool_order = ["igblast", "swig"])
+    sh_start = only(filter(c -> c["locus"] == "v" && c["kind"] == "start", joint_shared))
+    @test sh_start["sample_cats"]["total"]["n"] == 1
+    @test sh_start["sample_cats"]["shared"]["n"] == 1
+    @test sh_start["sample_cats"]["igblast_unique"]["n"] == 0
+    @test sh_start["sample_cats"]["swig_unique"]["n"] == 0
 end

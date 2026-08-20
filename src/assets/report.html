@@ -72,6 +72,19 @@
       gap: 2rem 3.25rem;
       margin: 1.35rem 0 0.4rem;
     }
+    .exact-summary {
+      margin: 0.85rem 0 0.55rem;
+    }
+    .exact-summary caption {
+      caption-side: top;
+      text-align: left;
+      color: var(--muted);
+      font-size: 12.5px;
+      padding: 0.45rem 0.7rem 0.35rem;
+    }
+    .exact-summary td.tool {
+      font-weight: 550;
+    }
     .kpi .val {
       font-size: 2.15rem;
       font-weight: 650;
@@ -85,8 +98,10 @@
       font-size: 12.5px;
       margin-top: 0.28rem;
     }
-    .chart { width: 100%; margin-top: 0.5rem; }
-    .chart svg { width: 100%; height: auto; display: block; }
+    .chart { width: 100%; margin-top: 0.5rem; overflow-x: auto; }
+    .chart svg { display: block; max-width: none; }
+    .chart svg:not([data-wide="1"]) { width: 100%; height: auto; }
+    .chart svg[data-wide="1"] { flex-shrink: 0; }
     .chart svg rect.clickable { cursor: pointer; }
     .legend {
       display: flex;
@@ -155,6 +170,14 @@
       background: #f5f5f4;
       color: #111;
     }
+    .span-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 1rem 1.5rem;
+      margin: 0.85rem 0 0.35rem;
+    }
+    .span-controls .pick { margin-bottom: 0.25rem; }
     .filters {
       display: flex;
       flex-wrap: wrap;
@@ -203,7 +226,6 @@
     #tip strong { display: block; margin-bottom: 0.3rem; font-size: 13px; }
     #tip .row { color: var(--muted); display: flex; justify-content: space-between; gap: 1.25rem; }
     #tip .row b { color: var(--fg); font-weight: 550; }
-    .span-picks { display: flex; flex-wrap: wrap; gap: 0.75rem 1.1rem; }
     #span-viewer { margin-top: 1.15rem; }
     #span-viewer[hidden] { display: none; }
     .span-head {
@@ -261,6 +283,13 @@
       margin: 0.35rem 0 0;
       min-height: 1.2em;
     }
+    .offset-grid {
+      display: grid;
+      gap: 1.35rem;
+      margin: 0.35rem 0 0.5rem;
+    }
+    .offset-grid > div { min-width: 0; }
+    .offset-grid .chart { max-width: 100%; }
     .offset-grid .lab {
       color: var(--muted);
       font-size: 11px;
@@ -313,7 +342,7 @@
       <div class="hero-top">
         <div>
           <h2>Wall-clock runtime</h2>
-          <p class="blurb" id="timing-blurb">End-to-end wall-clock seconds of the scored annotate pass. Each tool is annotated once per panel.</p>
+          <p class="blurb" id="timing-blurb">Wall-clock seconds for the scored annotate pass on this panel. IgBLAST and both SWIG assigners are timed on the same reads.</p>
         </div>
       </div>
       <div class="kpis" id="timing-kpis"></div>
@@ -324,36 +353,45 @@
       <div class="hero-top">
         <div>
           <h2>Span disagreement vs gold</h2>
-          <p class="blurb">Start / stop mismatch rate and mean IoU shortfall (1 − IoU). Each bar stacks errors unique to this tool (lighter) on errors that match the other family&apos;s coordinates (darker: IgBLAST vs SWIG). Click a bar for offset densities and MSA samples.</p>
-        </div>
-        <div class="span-picks">
-          <label class="pick">tool
-            <select id="span-tool"></select>
-          </label>
+          <p class="blurb">V/D/J and start/stop switch this whole section: miss rates, the Δ histogram, and MSA examples. Δ=0 is how many got that edge right vs gold. Unique vs shared on the stacked bars (and on each MSA card) is whether the other family landed on the same wrong coordinate.</p>
         </div>
       </div>
-      <div class="kpis" id="span-kpis"></div>
+      <div class="span-controls">
+        <div>
+          <div class="pick">locus</div>
+          <div class="toggles" id="span-locus" role="group" aria-label="Locus">
+            <button type="button" data-locus="v" aria-pressed="true">V</button>
+            <button type="button" data-locus="d" aria-pressed="false">D</button>
+            <button type="button" data-locus="j" aria-pressed="false">J</button>
+          </div>
+        </div>
+        <div>
+          <div class="pick">edge</div>
+          <div class="toggles" id="span-kind" role="group" aria-label="Edge">
+            <button type="button" data-kind="start" aria-pressed="true">start</button>
+            <button type="button" data-kind="stop" aria-pressed="false">stop</button>
+          </div>
+        </div>
+      </div>
+      <div class="scroll exact-summary" id="span-exact-summary"></div>
       <div class="chart" id="span-plot"></div>
       <div class="legend" id="span-legend"></div>
       <div id="span-viewer" hidden>
         <p class="span-head" id="span-viewer-title"></p>
         <div class="offset-grid" id="span-offset" hidden>
           <div>
-            <div class="lab">Δ start (tool − gold)</div>
-            <div class="chart" id="span-offset-start"></div>
-          </div>
-          <div>
-            <div class="lab">Δ stop (tool − gold)</div>
-            <div class="chart" id="span-offset-stop"></div>
+            <div class="lab" id="span-offset-lab">Δ vs gold · all scored reads</div>
+            <div class="chart" id="span-offset-plot"></div>
           </div>
         </div>
         <div class="legend" id="span-offset-legend"></div>
+        <p class="span-head" id="span-msa-head">MSA examples · mismatches on this edge</p>
         <div class="aln-legend" id="aln-legend" hidden>
           <span><i class="b-match">A</i>match vs germline</span>
           <span><i class="b-mis">C</i>mismatch vs germline</span>
           <span><i class="b-ins">A</i>query extra (gap in germline)</span>
           <span><i class="b-del">-</i>gap vs germline</span>
-          <span><i class="b-trim">-</i>trimmed after locus end</span>
+          <span><i class="b-trim">-</i>outside this row&apos;s start–stop</span>
         </div>
         <div id="span-pairs"></div>
       </div>
@@ -427,6 +465,7 @@
           renderAlleleChart();
           renderTimingChart();
           renderSpanChart();
+          showSpanSamples();
         });
       }
 
@@ -434,14 +473,9 @@
         document.getElementById("allele-chart").hidden = false;
         document.getElementById("headline").hidden = false;
         renderAlleleChart();
-        const buttons = document.querySelectorAll("#headline [data-locus]");
-        buttons.forEach(function (btn) {
+        document.querySelectorAll("#headline [data-locus]").forEach(function (btn) {
           btn.addEventListener("click", function () {
-            locus = btn.getAttribute("data-locus");
-            buttons.forEach(function (b) {
-              b.setAttribute("aria-pressed", b === btn ? "true" : "false");
-            });
-            renderHeadline();
+            setLocus(btn.getAttribute("data-locus"));
           });
         });
         renderHeadline();
@@ -455,28 +489,25 @@
       const gallery = data.span_gallery || [];
       const KIND_COLOR = {
         start: { shared: "#9f1239", unique: "#fb7185" },
-        stop: { shared: "#c2410c", unique: "#fdba74" },
-        iou: { shared: "#0e7490", unique: "#67e8f9" }
+        stop: { shared: "#c2410c", unique: "#fdba74" }
       };
-      const KIND_LABEL = { start: "start", stop: "stop", iou: "IoU miss" };
-      let spanTool = "";
+      const SHARE_LABEL = {
+        igblast_unique: "IgBLAST unique",
+        swig_unique: "SWIG unique",
+        shared: "shared same-wrong"
+      };
+      let spanLocus = "v";
+      let spanKind = "start";
       if (gallery.length) {
         document.getElementById("span-chart").hidden = false;
-        const spanTools = unique(gallery.map(function (c) { return c.pred; }));
-        spanTool = spanTools[0] || "";
-        const toolSel = document.getElementById("span-tool");
-        spanTools.forEach(function (t) {
-          const opt = document.createElement("option");
-          opt.value = t;
-          opt.textContent = t;
-          toolSel.appendChild(opt);
-        });
-        toolSel.value = spanTool;
-        toolSel.addEventListener("change", function () {
-          spanTool = toolSel.value;
+        bindPressed("#span-locus [data-locus]", "data-locus", setLocus);
+        bindPressed("#span-kind [data-kind]", "data-kind", function (v) {
+          spanKind = v;
           renderSpanChart();
+          showSpanSamples();
         });
         renderSpanChart();
+        showSpanSamples();
       }
 
       const filterKeys = ["panel", "metric", "pred", "ref"];
@@ -547,12 +578,17 @@
         kpis.replaceChildren();
         series.forEach(function (s) {
           if (s.values[0] == null) return;
-          kpis.appendChild(kpiEl(pct(s.values[0]), s.name + " V"));
+          const row = rows.filter(function (r) { return r.pred === s.name; })[0];
+          const nV = row && (row.v_n != null ? row.v_n : row.n);
+          const nLab = nV ? " · " + Math.round(s.values[0] * nV) + " / " + nV : "";
+          kpis.appendChild(kpiEl(pct(s.values[0]), s.name + " V" + nLab));
         });
 
         document.getElementById("allele-plot").replaceChildren(
           groupedBars(groups.map(function (g) { return g.label; }), series, {
             yMax: 1,
+            yTitle: "accuracy vs gold",
+            xTitle: "locus",
             tickFmt: function (v) { return Math.round(v * 100) + "%"; },
             barFmt: function (v) { return (v * 100).toFixed(1) + "%"; }
           })
@@ -562,114 +598,197 @@
 
       function renderTimingChart() {
         const rows = rowsForPanel(timing, chartPanel);
-        const series = [];
-        tools.forEach(function (tool) {
+        const walls = tools.map(function (tool) {
           const hits = rows.filter(function (r) { return r.tool === tool; });
-          let wall = 0;
-          let any = false;
+          let wall = null;
           hits.forEach(function (r) {
             if (typeof r.wall_s === "number" && isFinite(r.wall_s)) {
-              wall += r.wall_s;
-              any = true;
+              wall = (wall == null ? 0 : wall) + r.wall_s;
             }
           });
-          if (any) series.push({ name: tool, color: colorOf[tool], values: [wall] });
+          return wall;
         });
-        if (!series.length) {
+        const present = walls.filter(function (v) { return v != null; });
+        if (!present.length) {
           document.getElementById("timing-chart").hidden = true;
           return;
         }
-
-        const walls = series.map(function (s) { return s.values[0]; });
-        const slow = Math.max.apply(null, walls);
-        const fast = Math.min.apply(null, walls);
-        const slowS = series.filter(function (s) { return s.values[0] === slow; })[0];
-        const fastS = series.filter(function (s) { return s.values[0] === fast; })[0];
+        document.getElementById("timing-chart").hidden = false;
+        const slow = Math.max.apply(null, present);
+        const fast = Math.min.apply(null, present);
+        const slowI = walls.indexOf(slow);
+        const fastI = walls.indexOf(fast);
         const kpis = document.getElementById("timing-kpis");
         kpis.replaceChildren();
-        kpis.appendChild(kpiEl(fmtSec(slow), slowS.name));
-        const fastEl = kpiEl(fmtSec(fast), "Fastest · " + fastS.name);
+        kpis.appendChild(kpiEl(fmtSec(slow), tools[slowI]));
+        const fastEl = kpiEl(fmtSec(fast), "Fastest · " + tools[fastI]);
         fastEl.querySelector(".val").classList.add("good");
         kpis.appendChild(fastEl);
         if (fast > 0 && slow > fast) {
           kpis.appendChild(kpiEl((slow / fast).toFixed(1) + "×", "slowest / fastest"));
         }
 
-        const yMax = niceMax(slow);
         document.getElementById("timing-plot").replaceChildren(
-          groupedBars(series.map(function (s) { return s.name; }), series.map(function (s, i) {
-            return {
-              name: s.name,
-              color: s.color,
-              values: series.map(function (_, j) { return j === i ? s.values[0] : null; })
-            };
-          }), {
-            yMax: yMax,
+          groupedBars(tools, [{
+            name: "seconds",
+            color: "#a1a1aa",
+            colors: tools.map(function (t) { return colorOf[t]; }),
+            values: walls
+          }], {
+            yMax: niceMax(slow),
+            yTitle: "wall-clock time",
+            xTitle: "tool",
             tickFmt: function (v) { return fmtSec(v); },
-            barFmt: function (v) { return fmtSec(v); },
-            single: true
+            barFmt: function (v) { return fmtSec(v); }
           })
         );
-        fillLegend(document.getElementById("timing-legend"), series);
+        fillLegend(document.getElementById("timing-legend"), tools.map(function (t) {
+          return { name: t, color: colorOf[t] };
+        }));
+      }
+
+      function jointCell(locus, kind) {
+        return gallery.filter(function (c) {
+          return c.panel === chartPanel && c.locus === locus && c.kind === kind && c.tools;
+        })[0];
       }
 
       function renderSpanChart() {
-        const cells = gallery.filter(function (c) {
-          return c.panel === chartPanel && c.pred === spanTool;
+        const series = ["shared", "unique"].map(function (part) {
+          return {
+            name: part === "shared" ? "shared same-wrong" : "unique (other family differs)",
+            kind: spanKind,
+            stack: spanKind,
+            part: part,
+            color: (KIND_COLOR[spanKind] || KIND_COLOR.start)[part],
+            values: tools.map(function (tool) {
+              const cell = jointCell(spanLocus, spanKind);
+              const st = cell && cell.tools ? cell.tools[tool] : null;
+              const r = st ? st[part + "_rate"] : null;
+              return r != null && typeof r === "number" && isFinite(r) ? r : null;
+            })
+          };
         });
-        const loci = ["v", "d", "j"];
-        const kinds = ["start", "stop", "iou"];
-        const series = [];
-        kinds.forEach(function (kind) {
-          ["shared", "unique"].forEach(function (part) {
-            series.push({
-              name: KIND_LABEL[kind] + " " + part,
-              kind: kind,
-              stack: kind,
-              part: part,
-              color: KIND_COLOR[kind][part],
-              values: loci.map(function (loc) {
-                const cell = cells.filter(function (c) { return c.locus === loc && c.kind === kind; })[0];
-                const key = part + "_rate";
-                const r = cell ? cell[key] : null;
-                return r != null && typeof r === "number" && isFinite(r) ? r : null;
-              })
-            });
-          });
-        });
-        const kpis = document.getElementById("span-kpis");
-        kpis.replaceChildren();
-        function cellVD(kind) {
-          return cells.filter(function (c) { return c.locus === "v" && c.kind === kind; })[0];
-        }
-        const vStart = cellVD("start");
-        const vStop = cellVD("stop");
-        const vIou = cellVD("iou");
-        if (vStart && vStart.rate != null) kpis.appendChild(kpiEl(pct(vStart.rate), spanTool + " V start"));
-        if (vStop && vStop.rate != null) kpis.appendChild(kpiEl(pct(vStop.rate), "V stop"));
-        if (vStart && vStart.unique_rate != null) {
-          kpis.appendChild(kpiEl(pct(vStart.unique_rate), "V start unique"));
-        }
-
+        renderExactSummary();
         document.getElementById("span-plot").replaceChildren(
-          groupedBars(["V", "D", "J"], series, {
+          groupedBars(tools, series, {
             yMax: 1,
+            yTitle: "wrong vs gold (% of scored reads)",
+            xTitle: "tool",
             tickFmt: function (v) { return Math.round(v * 100) + "%"; },
             barFmt: function (v) { return (v * 100).toFixed(1) + "%"; },
-            onBar: function (hit) {
-              const loc = loci[hit.gi];
-              showSpanSamples(loc, hit.kind || hit.series);
+            onBar: function () {
+              showSpanSamples({ scroll: true });
             }
           })
         );
         fillLegend(document.getElementById("span-legend"), series);
       }
 
-      function showSpanSamples(locus, kind) {
-        const cell = gallery.filter(function (c) {
-          return c.panel === chartPanel && c.pred === spanTool &&
-                 c.locus === locus && c.kind === kind;
+      function histExact(cell, tool, which) {
+        const h = cell && cell.offsets && cell.offsets[tool] && cell.offsets[tool][which];
+        if (!h) return null;
+        const n = h.n || 0;
+        const z = h.zeros || 0;
+        return { exact: z, n: n };
+      }
+
+      function metricGold(name, tool) {
+        return metrics.filter(function (r) {
+          return r.metric === name && r.pred === tool && r.ref === ":gold" && r.panel === chartPanel;
         })[0];
+      }
+
+      function locusCount(row, loc) {
+        if (!row) return null;
+        const rate = row[loc];
+        const n = loc === "d" ? row.d_n : loc === "j" ? row.j_n : (row.v_n != null ? row.v_n : row.n);
+        if (rate == null || n == null || typeof rate !== "number" || !isFinite(rate) || !(n > 0)) return null;
+        return { exact: Math.round(rate * n), n: n };
+      }
+
+      function countCell(pack) {
+        const td = document.createElement("td");
+        td.className = "num";
+        if (!pack) {
+          td.classList.add("empty");
+          td.textContent = "—";
+          return td;
+        }
+        td.textContent = pack.exact + " / " + pack.n + "  (" + (100 * pack.exact / pack.n).toFixed(1) + "%)";
+        return td;
+      }
+
+      function renderExactSummary() {
+        const el = document.getElementById("span-exact-summary");
+        const table = document.createElement("table");
+        const cap = document.createElement("caption");
+        cap.textContent = "Reads exactly matching gold — full panel, all loci. Empty calls count as not exact.";
+        table.appendChild(cap);
+        const thead = document.createElement("thead");
+        const hr = document.createElement("tr");
+        appendTh(hr, "tool");
+        ["V", "D", "J"].forEach(function (L) {
+          appendTh(hr, L + " start", true);
+          appendTh(hr, L + " stop", true);
+          appendTh(hr, L + " both ends", true);
+        });
+        thead.appendChild(hr);
+        table.appendChild(thead);
+        const tbody = document.createElement("tbody");
+        tools.forEach(function (tool) {
+          const tr = document.createElement("tr");
+          const tdT = document.createElement("td");
+          tdT.className = "tool";
+          tdT.textContent = tool;
+          tr.appendChild(tdT);
+          ["v", "d", "j"].forEach(function (loc) {
+            const cell = jointCell(loc, "start") || jointCell(loc, "stop");
+            tr.appendChild(countCell(histExact(cell, tool, "start")));
+            tr.appendChild(countCell(histExact(cell, tool, "stop")));
+            tr.appendChild(countCell(locusCount(metricGold("span_exact", tool), loc)));
+          });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        el.replaceChildren(table);
+      }
+
+      function bindPressed(sel, attr, onPick) {
+        const btns = document.querySelectorAll(sel);
+        btns.forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            const v = btn.getAttribute(attr);
+            btns.forEach(function (b) {
+              b.setAttribute("aria-pressed", b === btn ? "true" : "false");
+            });
+            onPick(v);
+          });
+        });
+      }
+
+      function setLocus(v) {
+        locus = v;
+        spanLocus = v;
+        document.querySelectorAll("[data-locus]").forEach(function (b) {
+          b.setAttribute("aria-pressed", b.getAttribute("data-locus") === v ? "true" : "false");
+        });
+        renderHeadline();
+        if (gallery.length) {
+          renderSpanChart();
+          showSpanSamples();
+        }
+      }
+
+      function selectionLabel() {
+        return spanLocus.toUpperCase() + " " + spanKind;
+      }
+
+      function showSpanSamples(opt) {
+        opt = opt || {};
+        const locus = spanLocus;
+        const kind = spanKind === "stop" ? "stop" : "start";
+        const cell = jointCell(locus, kind);
         const viewer = document.getElementById("span-viewer");
         const title = document.getElementById("span-viewer-title");
         const pairs = document.getElementById("span-pairs");
@@ -679,134 +798,173 @@
           title.textContent = "";
           document.getElementById("aln-legend").hidden = true;
           offsetWrap.hidden = true;
-          pairs.replaceChildren(emptyNote("No gallery cell for this bar."));
+          pairs.replaceChildren(emptyNote("No gallery cell for this selection."));
           return;
         }
-        const nBad = cell.n_disagree == null ? 0 : cell.n_disagree;
-        const nScored = cell.n_scored == null ? 0 : cell.n_scored;
-        const nU = cell.n_unique == null ? 0 : cell.n_unique;
-        const nS = cell.n_shared == null ? 0 : cell.n_shared;
-        title.textContent = spanTool + " · " + locus.toUpperCase() + " " + kind +
-          " — " + nBad + " / " + nScored + " disagree (" + nU + " unique, " + nS +
-          " shared) · showing " + (cell.samples ? cell.samples.length : 0) + " sampled reads";
-        renderOffsetPlots(cell);
-        if (!cell.samples || !cell.samples.length) {
-          pairs.replaceChildren(emptyNote("No disagreements to sample."));
+        const pack = (cell.sample_cats && cell.sample_cats.total) || {};
+        const samples = pack.samples || cell.samples || [];
+        const bits = [selectionLabel()];
+        if (cell.n_scored != null) bits.push("n = " + cell.n_scored + " scored");
+        if (pack.n != null) bits.push(pack.n + " mismatches");
+        if (pack.peak) bits.push("MSA from " + pack.peak + (pack.peak_n ? " (" + pack.peak_n + ")" : ""));
+        title.textContent = bits.join(" — ");
+        renderOffsetPlots(cell, kind);
+        const msaHead = document.getElementById("span-msa-head");
+        if (msaHead) {
+          msaHead.textContent = pack.peak
+            ? ("MSA examples · 10 from " + pack.peak +
+               (pack.peak_n ? " (" + pack.peak_n + " reads in that bin)" : ""))
+            : "MSA examples · mismatches on this edge";
+        }
+        if (!samples.length) {
+          pairs.replaceChildren(emptyNote(
+            pack.n ? "No MSA examples stored for this edge." :
+              "No mismatches on " + selectionLabel() + "."
+          ));
           document.getElementById("aln-legend").hidden = true;
-          viewer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          if (opt.scroll) viewer.scrollIntoView({ behavior: "smooth", block: "nearest" });
           return;
         }
         document.getElementById("aln-legend").hidden = false;
         const frag = document.createDocumentFragment();
-        cell.samples.forEach(function (s, i) {
+        samples.forEach(function (s, i) {
           frag.appendChild(pairCard(s, i, locus, kind));
         });
         pairs.replaceChildren(frag);
-        viewer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        if (opt.scroll) viewer.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }
 
-      function renderOffsetPlots(cell) {
+      function renderOffsetPlots(cell, which) {
         const wrap = document.getElementById("span-offset");
         const offs = cell.offsets || {};
-        const names = Object.keys(offs);
+        const names = (tools.length ? tools : Object.keys(offs)).filter(function (t) {
+          return offs[t];
+        });
+        const n = cell.n_scored;
+        const lab = document.getElementById("span-offset-lab");
+        if (lab) {
+          lab.textContent = "Δ " + which + " vs gold · all " + (n != null ? n + " scored" : "scored") +
+            " · Δ=0 = correct on " + which;
+        }
         if (!names.length) {
           wrap.hidden = true;
           document.getElementById("span-offset-legend").replaceChildren();
           return;
         }
         wrap.hidden = false;
-        document.getElementById("span-offset-start").replaceChildren(
-          offsetDensitySvg(offs, "start"));
-        document.getElementById("span-offset-stop").replaceChildren(
-          offsetDensitySvg(offs, "stop"));
+        document.getElementById("span-offset-plot").replaceChildren(
+          offsetHistSvg(offs, names, which, n));
         const legendSeries = names.map(function (t) {
-          const h = offs[t] && offs[t].start;
-          const n = h && h.n ? h.n : 0;
-          const z = h && h.zeros ? h.zeros : 0;
-          const exact = n > 0 ? (100 * z / n).toFixed(1) + "% exact" : "";
-          return { name: t + (exact ? " · " + exact : ""), color: colorOf[t] || "#a1a1aa" };
+          const h = offs[t] && offs[t][which];
+          const ns = h && h.n ? h.n : 0;
+          const zs = h && h.zeros ? h.zeros : 0;
+          const off = Math.max(0, ns - zs);
+          return {
+            name: t + " · " + zs + " correct / " + off + " off",
+            color: colorOf[t] || "#a1a1aa"
+          };
         });
         fillLegend(document.getElementById("span-offset-legend"), legendSeries);
       }
 
-      function offsetDensitySvg(offs, which) {
-        const W = 440, H = 180, L = 42, R = 12, T = 10, B = 28;
-        const plotW = W - L - R, plotH = H - T - B;
-        const bw = 1.25;
-        const toolsHere = Object.keys(offs);
+      function offsetAxis(offs, names, which) {
         let xmin = Infinity, xmax = -Infinity;
-        const series = toolsHere.map(function (t) {
-          const h = (offs[t] && offs[t][which]) || { n: 0, zeros: 0, bins: [] };
-          const pts = (h.bins || []).map(function (b) { return { x: b[0], c: b[1] }; });
-          pts.forEach(function (p) {
-            if (p.x < xmin) xmin = p.x;
-            if (p.x > xmax) xmax = p.x;
+        const occupied = {};
+        let anyMiss = false;
+        names.forEach(function (t) {
+          const h = (offs[t] && offs[t][which]) || { bins: [], missing: 0 };
+          if (h.missing) anyMiss = true;
+          (h.bins || []).forEach(function (b) {
+            const x = b[0], c = b[1];
+            if (typeof x !== "number" || typeof c !== "number" || !(c > 0)) return;
+            occupied[x] = true;
+            if (x < xmin) xmin = x;
+            if (x > xmax) xmax = x;
           });
-          return { name: t, color: colorOf[t] || "#a1a1aa", n: h.n || 0, pts: pts };
         });
-        if (!isFinite(xmin)) { xmin = -5; xmax = 5; }
-        const pad = Math.max(4, Math.ceil(3 * bw));
-        xmin -= pad;
-        xmax += pad;
-        if (xmin > -2) xmin = -2;
-        if (xmax < 2) xmax = 2;
+        if (!isFinite(xmin)) {
+          return { xs: anyMiss ? ["miss"] : [0], anyMiss: anyMiss };
+        }
         const xs = [];
-        for (let x = xmin; x <= xmax; x++) xs.push(x);
-        const inv = 1 / (bw * Math.sqrt(2 * Math.PI));
+        const span = xmax - xmin;
+        if (span <= 48) {
+          if (xmin > 0) xmin = 0;
+          if (xmax < 0) xmax = 0;
+          for (let x = xmin; x <= xmax; x++) xs.push(x);
+        } else {
+          Object.keys(occupied).map(Number).sort(function (a, b) { return a - b; })
+            .forEach(function (x) { xs.push(x); });
+          if (xs.indexOf(0) < 0) {
+            let i = 0;
+            while (i < xs.length && xs[i] < 0) i++;
+            xs.splice(i, 0, 0);
+          }
+        }
+        if (anyMiss) xs.push("miss");
+        return { xs: xs, anyMiss: anyMiss };
+      }
+
+      function offsetHistSvg(offs, names, which, nScored) {
+        const axis = offsetAxis(offs, names, which);
+        const xs = axis.xs;
+        const series = names.map(function (t) {
+          const h = (offs[t] && offs[t][which]) || { bins: [], missing: 0 };
+          const by = {};
+          (h.bins || []).forEach(function (b) { by[b[0]] = b[1]; });
+          return {
+            name: t,
+            color: colorOf[t] || "#a1a1aa",
+            values: xs.map(function (x) {
+              if (x === "miss") return h.missing || 0;
+              const v = by[x];
+              return v != null ? v : 0;
+            })
+          };
+        });
         let yMax = 0;
         series.forEach(function (s) {
-          s.ys = xs.map(function (x) {
-            let acc = 0;
-            s.pts.forEach(function (p) {
-              const z = (x - p.x) / bw;
-              acc += p.c * Math.exp(-0.5 * z * z);
-            });
-            const n = s.n > 0 ? s.n : 1;
-            const y = (acc * inv) / n;
-            if (y > yMax) yMax = y;
-            return y;
+          s.values.forEach(function (v) { if (v > yMax) yMax = v; });
+        });
+        const nG = xs.length;
+        const labels = xs.map(function (x) {
+          if (x === "miss") return "miss";
+          if (x === 0) return nG <= 14 ? "0 correct" : "0";
+          return (x > 0 ? "+" : "") + x;
+        });
+        const ghost = xs.map(function (x) {
+          if (x !== 0) return null;
+          return names.map(function (t) {
+            const h = (offs[t] && offs[t][which]) || {};
+            return {
+              name: t,
+              color: colorOf[t] || "#a1a1aa",
+              count: h.zeros || 0
+            };
           });
         });
-        if (yMax <= 0) yMax = 1;
-        const xspan = xmax - xmin;
-        const xpix = function (x) { return L + ((x - xmin) / xspan) * plotW; };
-        const ypix = function (y) { return T + plotH * (1 - y / yMax); };
-        const svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img" });
-        svg.appendChild(svgEl("line", {
-          x1: L, x2: L + plotW, y1: T + plotH, y2: T + plotH,
-          stroke: "#3f3f46", "stroke-width": "1"
-        }));
-        const zero = xpix(0);
-        svg.appendChild(svgEl("line", {
-          x1: zero, x2: zero, y1: T, y2: T + plotH,
-          stroke: "#3f3f46", "stroke-width": "1", "stroke-dasharray": "3 3"
-        }));
-        [xmin, 0, xmax].forEach(function (tick) {
-          const lab = svgEl("text", {
-            x: xpix(tick), y: H - 8, fill: "#a1a1aa",
-            "font-size": "11", "text-anchor": "middle",
-            "font-family": "ui-sans-serif, system-ui, sans-serif"
-          });
-          lab.textContent = String(tick);
-          svg.appendChild(lab);
+        return groupedBars(labels, series, {
+          yMax: yMax <= 0 ? 1 : (yMax <= 2 ? 2 : niceMax(yMax)),
+          yTitle: "reads off vs gold",
+          xTitle: "offset from gold (nt)",
+          noBarLabels: true,
+          ghost: ghost,
+          xLabel: function (lab, gi) {
+            if (nG <= 24) return lab;
+            const x = xs[gi];
+            if (x === "miss" || x === 0) return lab;
+            return x % 2 === 0 ? lab : "";
+          },
+          tickFmt: function (v) {
+            const r = Math.round(v);
+            return Math.abs(v - r) < 1e-6 ? String(r) : "";
+          },
+          barFmt: function (v) {
+            if (!(v > 0)) return "0";
+            const n = nScored > 0 ? nScored : 0;
+            return n ? v + " · " + (100 * v / n).toFixed(2) + "% of scored" : String(v);
+          },
+          tipAll: true
         });
-        series.forEach(function (s) {
-          let d = "M " + xpix(xs[0]) + " " + ypix(s.ys[0]);
-          for (let i = 1; i < xs.length; i++) {
-            d += " L " + xpix(xs[i]) + " " + ypix(s.ys[i]);
-          }
-          const fillD = d + " L " + xpix(xs[xs.length - 1]) + " " + ypix(0) +
-            " L " + xpix(xs[0]) + " " + ypix(0) + " Z";
-          const area = svgEl("path", {
-            d: fillD, fill: s.color, "fill-opacity": "0.28", stroke: "none"
-          });
-          const line = svgEl("path", {
-            d: d, fill: "none", stroke: s.color, "stroke-width": "1.6"
-          });
-          svg.appendChild(area);
-          svg.appendChild(line);
-        });
-        return svg;
       }
 
       function pairCard(s, i, locus, kind) {
@@ -814,7 +972,7 @@
         d.className = "pair";
         const h = document.createElement("h3");
         h.textContent = (i + 1) + ". " + (s.sequence_id || "read") +
-          (s.share ? " · " + s.share : "");
+          (s.share ? " · " + (SHARE_LABEL[s.share] || s.share) : "");
         d.appendChild(h);
         const meta = document.createElement("div");
         meta.className = "meta";
@@ -827,16 +985,13 @@
       function spanMetaLine(s, locus, kind) {
         const gs = (s.gold_span && s.gold_span.length === 2) ? s.gold_span[0] + "–" + s.gold_span[1] : "—";
         const parts = [locus.toUpperCase(), "gold " + gs];
-        const rows = (s.msa && s.msa.rows) || [];
-        rows.forEach(function (r) {
-          if (r.kind !== "trim" || r.id === "gold") return;
-          parts.push(r.label + " …" + (r.stop == null ? "—" : r.stop));
+        const spans = s.tool_spans || {};
+        Object.keys(spans).forEach(function (t) {
+          const sp = spans[t];
+          parts.push(t + " " + (sp && sp.length === 2 ? sp[0] + "–" + sp[1] : "—"));
         });
-        if (s.delta_start != null) parts.push("Δstart " + fmtDelta(s.delta_start));
-        if (s.delta_stop != null) parts.push("Δstop " + fmtDelta(s.delta_stop));
         if (s.iou != null && typeof s.iou === "number") parts.push("IoU " + s.iou.toFixed(3));
         parts.push("gold " + (s.gold_call || "—"));
-        if (s.pred_call && s.pred_call !== s.gold_call) parts.push("focus " + s.pred_call);
         return parts.join(" · ");
       }
 
@@ -852,7 +1007,8 @@
         lab.className = "lab";
         const gl = s.gold_gl || s.gold_call || "—";
         lab.textContent = "MSA · full query × full germline " + gl +
-          " · rows trimmed to " + String(locus).toUpperCase() + " end";
+          " · tool rows clipped to each caller " + String(locus).toUpperCase() +
+          " start–stop";
         wrap.appendChild(lab);
         const pre = document.createElement("pre");
         pre.className = "aln";
@@ -993,10 +1149,13 @@
       }
 
       function groupedBars(groupLabels, series, opt) {
-        const W = 920, H = 360, L = 58, R = 18, T = 32, B = 44;
-        const plotW = W - L - R, plotH = H - T - B;
-        const nG = groupLabels.length;
-        const gW = plotW / Math.max(nG, 1);
+        const hasY = !!opt.yTitle;
+        const hasX = !!opt.xTitle;
+        const H = 360, R = 18, T = 32;
+        const L = hasY ? 78 : 58;
+        const B = hasX ? 64 : 44;
+        const plotH = H - T - B;
+        const nG = Math.max(groupLabels.length, 1);
         const stackOf = function (s) { return s.stack || s.name; };
         const stackIds = [];
         series.forEach(function (s) {
@@ -1004,42 +1163,117 @@
           if (stackIds.indexOf(id) < 0) stackIds.push(id);
         });
         const nStacks = Math.max(stackIds.length, 1);
-        const inner = gW * (opt.single ? 0.42 : 0.7);
-        const gap = 3;
-        const barW = opt.single ? inner : Math.max((inner - gap * (nStacks - 1)) / nStacks, 6);
+        const gap = 2;
+        const minBar = 10;
+        const innerFrac = opt.single ? 0.42 : 0.72;
+        const minInner = opt.single ? minBar : minBar * nStacks + gap * Math.max(nStacks - 1, 0);
+        const minGw = Math.ceil(minInner / innerFrac) + 8;
+        const basePlotW = 920 - L - R;
+        const plotW = Math.max(basePlotW, nG * minGw);
+        const W = L + plotW + R;
+        const gW = plotW / nG;
+        const inner = gW * innerFrac;
+        const barW = opt.single
+          ? inner
+          : Math.max(1, (inner - gap * (nStacks - 1)) / nStacks);
         const yMax = opt.yMax > 0 ? opt.yMax : 1;
+        const wide = plotW > basePlotW + 1;
 
-        const svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img" });
+        const svg = svgEl("svg", {
+          viewBox: "0 0 " + W + " " + H,
+          width: String(W),
+          height: String(H),
+          role: "img",
+          preserveAspectRatio: "xMinYMid meet"
+        });
+        svg.style.maxWidth = "none";
+        if (wide) {
+          svg.setAttribute("data-wide", "1");
+          svg.style.width = W + "px";
+          svg.style.height = H + "px";
+        } else {
+          svg.style.width = "100%";
+          svg.style.height = "auto";
+        }
         [0, 0.5, 1].forEach(function (t) {
           const y = T + plotH * (1 - t);
           svg.appendChild(svgEl("line", {
             x1: L, x2: L + plotW, y1: y, y2: y,
             stroke: t === 0 ? "#3f3f46" : "#27272a", "stroke-width": "1"
           }));
+          const tick = opt.tickFmt(t * yMax);
+          if (!tick) return;
           const lab = svgEl("text", {
             x: L - 10, y: y + 4, fill: "#a1a1aa",
             "font-size": "12", "text-anchor": "end",
             "font-family": "ui-sans-serif, system-ui, sans-serif"
           });
-          lab.textContent = opt.tickFmt(t * yMax);
+          lab.textContent = tick;
           svg.appendChild(lab);
         });
+        if (hasY) {
+          const yMid = T + plotH / 2;
+          const yt = svgEl("text", {
+            x: 14, y: yMid, fill: "#a1a1aa",
+            "font-size": "12", "text-anchor": "middle",
+            "font-family": "ui-sans-serif, system-ui, sans-serif",
+            transform: "rotate(-90 14 " + yMid + ")"
+          });
+          yt.textContent = opt.yTitle;
+          svg.appendChild(yt);
+        }
+        if (hasX) {
+          const xt = svgEl("text", {
+            x: L + plotW / 2, y: H - 10, fill: "#a1a1aa",
+            "font-size": "12", "text-anchor": "middle",
+            "font-family": "ui-sans-serif, system-ui, sans-serif"
+          });
+          xt.textContent = opt.xTitle;
+          svg.appendChild(xt);
+        }
 
         groupLabels.forEach(function (label, gi) {
           const gx = L + gi * gW;
+          const ghostNotes = opt.ghost && opt.ghost[gi];
+          if (ghostNotes && ghostNotes.length) {
+            const band = svgEl("rect", {
+              x: gx, y: T, width: gW, height: plotH,
+              fill: "#27272a", opacity: "0.45"
+            });
+            bindTip(band, "Δ = 0 · correct vs gold on this edge", ghostNotes.map(function (g) {
+              return [g.name, g.count + " correct"];
+            }));
+            svg.appendChild(band);
+          }
           const xLab = svgEl("text", {
-            x: gx + gW / 2, y: H - 16, fill: "#d4d4d8",
-            "font-size": "13", "text-anchor": "middle",
+            x: gx + gW / 2, y: H - (hasX ? 32 : 16), fill: "#d4d4d8",
+            "font-size": nG > 20 ? "10" : "13", "text-anchor": "middle",
             "font-family": "ui-sans-serif, system-ui, sans-serif"
           });
-          xLab.textContent = label;
-          svg.appendChild(xLab);
+          const labText = opt.xLabel ? opt.xLabel(label, gi) : label;
+          if (labText) {
+            xLab.textContent = labText;
+            svg.appendChild(xLab);
+          }
 
           stackIds.forEach(function (sid, si) {
             const members = series.filter(function (s) { return stackOf(s) === sid; });
             const x = opt.single
               ? gx + (gW - barW) / 2
               : gx + (gW - inner) / 2 + si * (barW + gap);
+            const ghost = opt.ghost && opt.ghost[gi] && opt.ghost[gi][si];
+            if (ghost) {
+              const stub = 12;
+              const rect = svgEl("rect", {
+                x: x, y: T + plotH - stub, width: barW, height: stub,
+                fill: "none", stroke: ghost.color, "stroke-width": "1.2",
+                "stroke-dasharray": "2.5 2", rx: "2", ry: "2"
+              });
+              bindTip(rect, "Δ = 0 · correct vs gold on this edge", opt.ghost[gi].map(function (g) {
+                return [g.name, g.count + " correct"];
+              }));
+              svg.appendChild(rect);
+            }
             let acc = 0;
             const total = members.reduce(function (sum, s) {
               const v = s.values[gi];
@@ -1053,7 +1287,8 @@
               const y = T + plotH - plotH * (acc / yMax);
               const rect = svgEl("rect", {
                 x: x, y: y, width: barW, height: Math.max(h, 0),
-                fill: s.color, rx: members.length === 1 ? "2" : "0", ry: members.length === 1 ? "2" : "0"
+                fill: (s.colors && s.colors[gi]) || s.color,
+                rx: members.length === 1 ? "2" : "0", ry: members.length === 1 ? "2" : "0"
               });
               if (opt.onBar) {
                 rect.setAttribute("class", "clickable");
@@ -1064,18 +1299,16 @@
                   });
                 });
               }
-              const tipTitle = opt.single ? s.name : groupLabels[gi];
-              const tipBody = opt.single
-                ? [["Wall clock", opt.barFmt(v)]]
-                : members.map(function (ss) {
-                    const vv = ss.values[gi];
-                    return [ss.name, vv == null ? "—" : opt.barFmt(vv)];
-                  }).concat([["total", opt.barFmt(total)]]);
+              const tipTitle = groupLabels[gi];
+              const tipBody = (opt.tipAll ? series : members).map(function (ss) {
+                const vv = ss.values[gi];
+                return [ss.name, vv == null ? "—" : opt.barFmt(vv)];
+              }).concat(!opt.tipAll && members.length > 1 ? [["total", opt.barFmt(total)]] : []);
               bindTip(rect, tipTitle, tipBody);
               svg.appendChild(rect);
             });
             const hTot = plotH * (total / yMax);
-            if (hTot > 14 && total > 0) {
+            if (!opt.noBarLabels && hTot > 14 && total > 0) {
               const tl = svgEl("text", {
                 x: x + barW / 2, y: T + plotH - hTot - 7, fill: "#fafafa",
                 "font-size": "11", "text-anchor": "middle",
@@ -1085,6 +1318,25 @@
               svg.appendChild(tl);
             }
           });
+          if (ghostNotes && ghostNotes.length) {
+            const cx = gx + gW / 2;
+            const head = svgEl("text", {
+              x: cx, y: T + 12, fill: "#a1a1aa",
+              "font-size": "10", "text-anchor": "middle",
+              "font-family": "ui-sans-serif, system-ui, sans-serif"
+            });
+            head.textContent = "correct";
+            svg.appendChild(head);
+            ghostNotes.forEach(function (g, i) {
+              const tl = svgEl("text", {
+                x: cx, y: T + 26 + i * 13, fill: g.color,
+                "font-size": "12", "text-anchor": "middle",
+                "font-family": "ui-sans-serif, system-ui, sans-serif"
+              });
+              tl.textContent = String(g.count);
+              svg.appendChild(tl);
+            });
+          }
         });
         return svg;
       }

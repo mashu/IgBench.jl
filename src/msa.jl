@@ -1,8 +1,8 @@
-# msa.jl — Query-anchored overlap MSA for untrimmed query + germline + V-end trims.
+# msa.jl — Query-anchored overlap MSA for untrimmed query + germline + span clips.
 #
 # Star MSA: overlap-align the full query to the full germline, then project each
-# tool's 1:stop prefix onto those columns. That is the VDJ special case of POA
-# (tools are the same read cut at different V/D/J ends), so a general graph
+# tool's [start, stop] onto those columns. That is the VDJ special case of POA
+# (tools are the same read cut at different V/D/J bounds), so a general graph
 # aligner is unnecessary at gallery size.
 
 const ALIGN_MATCH = 2
@@ -128,27 +128,33 @@ function traceback_overlap(q::AbstractString, s::AbstractString, ptr::Matrix{UIn
     qstr, sstr, match_line(qstr, sstr)
 end
 
-"""Project a query alignment row so bases after `stop` (1-based, inclusive) become gaps."""
-function project_query_stop(query_aln::AbstractString, stop::Integer)
+"""Keep query bases in `[start, stop]` (1-based, inclusive); other query bases become gaps."""
+function project_query_span(query_aln::AbstractString, start::Integer, stop::Integer)
     n = ncodeunits(query_aln)
     buf = Vector{UInt8}(undef, n)
     qpos = 0
+    lo = Int(start)
+    hi = Int(stop)
     for i in 1:n
         c = codeunit(query_aln, i)
         if c == UInt8('-')
             buf[i] = UInt8('-')
         else
             qpos += 1
-            buf[i] = qpos <= stop ? c : UInt8('-')
+            buf[i] = (qpos >= lo && qpos <= hi) ? c : UInt8('-')
         end
     end
     String(buf)
 end
 
-"""
-MSA rows: untrimmed query, untrimmed germline, then named prefixes through `stop`.
+"""Project a query alignment row so bases after `stop` (1-based, inclusive) become gaps."""
+project_query_stop(query_aln::AbstractString, stop::Integer) =
+    project_query_span(query_aln, 1, stop)
 
-`trims` is `(name, stop, call)` in display order.
+"""
+MSA rows: untrimmed query, untrimmed germline, then named `[start, stop]` clips.
+
+`trims` is `(name, start, stop, call)` in display order.
 """
 function query_germline_msa(query::AbstractString, gl_name::AbstractString,
                             gl_seq::AbstractString, trims)
@@ -161,13 +167,15 @@ function query_germline_msa(query::AbstractString, gl_name::AbstractString,
     ]
     for t in trims
         name = String(t[1])
-        stop = Int(t[2])
-        call = String(t[3])
+        start = Int(t[2])
+        stop = Int(t[3])
+        call = String(t[4])
         push!(rows, Dict{String,Any}(
             "id" => name,
             "label" => name,
             "kind" => "trim",
-            "seq" => project_query_stop(qa, stop),
+            "seq" => project_query_span(qa, start, stop),
+            "start" => start,
             "stop" => stop,
             "call" => call,
         ))
