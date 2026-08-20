@@ -162,9 +162,16 @@ end
     @test isfile(joinpath(outdir, "summary.md"))
     @test isfile(joinpath(outdir, "report.html"))
     @test isfile(joinpath(outdir, "manifest.json"))
+    @test isfile(joinpath(outdir, "span_gallery.json"))
     html = read(joinpath(outdir, "report.html"), String)
     @test occursin("smoke", html)
     @test occursin("window.IGBENCH", html)
+    @test occursin("span_gallery", html)
+    @test occursin("Span disagreement vs gold", html)
+    @test occursin("trimmed after locus end", html)
+    @test occursin("fillMsa", html)
+    @test occursin("unique to this tool", html)
+    @test occursin("offsetDensitySvg", html)
     @test !occursin("__IGBENCH_DATA__", html)
     @test !isempty(result.timing)
     @test haskey(result.timing[1], "wall_s")
@@ -302,4 +309,159 @@ end
     @test d1.sequences == d2.sequences
     @test d1.ids == d2.ids
     @test !isnothing(d1.gold) && d1.gold == d2.gold
+end
+
+@testset "drop D ablation" begin
+    r = CallRecord("s1", "AAACCCGGGTTT", "V1", "D1", "J1",
+                   Span(1, 3), Span(4, 6), Span(7, 12))
+    out = drop_d_from_record(r)
+    @test out.sequence == "AAAGGGTTT"
+    @test out.v_call == "V1" && out.j_call == "J1" && out.d_call == ""
+    @test out.v_span == Span(1, 3)
+    @test isempty(out.d_span)
+    @test out.j_span == Span(4, 9)
+
+    kept = drop_d_from_record(CallRecord("s2", "ACGT", "V", "", "J",
+                                        Span(1, 2), EMPTY_SPAN, Span(3, 4)))
+    @test kept.sequence == "ACGT" && kept.d_call == "" && kept.j_span == Span(3, 4)
+
+    gold = CallRecord[]
+    for i in 1:20
+        seq = "VVV" * "DDDD" * "JJ"
+        push!(gold, CallRecord("r$i", seq, "V$i", "D$i", "J$i",
+                               Span(1, 3), Span(4, 7), Span(8, 9)))
+    end
+    src_data = PanelData("parent", "sp", GermlinePaths(; v = VFA, d = DFA, j = JFA),
+                         String[g.sequence for g in gold], String[g.sequence_id for g in gold],
+                         gold, Dict{String,Any}("kind" => "sim"))
+    all_dropped = drop_d_from_panel(src_data, 1.0, 1; id = "parent__drop_d=1.0")
+    @test all_dropped.meta["d_present_before"] == 20
+    @test all_dropped.meta["d_dropped"] == 20
+    @test all(rr -> isempty(rr.d_span) && rr.d_call == "", all_dropped.gold)
+    @test all(i -> all_dropped.gold[i].v_call == gold[i].v_call, eachindex(gold))
+    @test all(i -> length(all_dropped.sequences[i]) == 5, eachindex(gold))
+    some = drop_d_from_panel(src_data, 0.9, 1; id = "parent__drop_d=0.9")
+    @test 1 <= some.meta["d_dropped"] < 20
+    @test some.meta["d_dropped"] + count(rr -> !isempty(rr.d_span), some.gold) == 20
+
+    gp = GermlinePaths(; v = VFA, d = DFA, j = JFA)
+    src = SimSource(; id = "drop_toy", db_label = "fix", germline = gp, species = "sp", n = 12, seed = 3)
+    parent = SimGoldPanel(src, :all; n = 12)
+    panel = DropDPanel(parent; drop_frac = 1.0, seed = 3)
+    data = load_panel(panel)
+    @test occursin("drop_d=1.0", data.id)
+    @test all(rr -> isempty(rr.d_span) && rr.d_call == "", data.gold)
+    man = DatasetManifest("drop"; sim = [src], airr = AirrSource[])
+    echo = CallableAnnotator("echo") do seqs, ids, germline
+        CallRecord[CallRecord(ids[i], seqs[i], "", "", "") for i in eachindex(ids)]
+    end
+    suite = suite_from_manifest(man, [echo]; drop_d_frac = 0.9,
+                                timing = TimingSpec(warmup = 0, repeats = 0))
+    @test length(suite.panels) == 2
+    @test occursin("drop_d=0.9", suite.panels[2].id)
+end
+
+@testset "reuse_predictions" begin
+    gp = GermlinePaths(; v = VFA, d = DFA, j = JFA)
+    src = SimSource(; id = "reuse_toy", db_label = "fix", germline = gp, species = "sp", n = 4, seed = 4)
+    panel = SimGoldPanel(src, :all; n = 4)
+    data = load_panel(panel)
+    outdir = mktempdir()
+    store = DirectoryRunStore(outdir)
+    first_tool = FakeAnnotator("once"; gold = data.gold)
+    suite1 = BenchSuite("reuse"; panels = [panel], tools = [first_tool],
+                        compares = [CompareSpec("once", ":gold")],
+                        timing = TimingSpec(warmup = 0, repeats = 1))
+    r1 = run_suite(suite1; mode = FullReportMode(), store)
+    @test any(row -> row["metric"] == "allele" && row["v"] == 1.0, r1.metrics)
+    boom = CallableAnnotator("once") do seqs, ids, germline
+        error("should not annotate when reusing")
+    end
+    suite2 = BenchSuite("reuse"; panels = [panel], tools = [boom],
+                        compares = [CompareSpec("once", ":gold")],
+                        timing = TimingSpec(warmup = 0, repeats = 1))
+    r2 = run_suite(suite2; mode = FullReportMode(), store, reuse_predictions = true)
+    @test any(row -> row["metric"] == "allele" && row["v"] == 1.0, r2.metrics)
+    @test any(row -> row["tool"] == "once" && haskey(row, "wall_s"), r2.timing)
+end
+
+@testset "span gallery alignments" begin
+    q, s, mid = semiglobal_align("ACGT", "TTACGTTT")
+    @test s == "TTACGTTT"
+    @test q == "--ACGT--"
+    @test mid == "  ||||  "
+
+    q2, s2, mid2 = semiglobal_align("ACGT", "AGGT")
+    @test ncodeunits(q2) == ncodeunits(s2) == ncodeunits(mid2)
+    @test count(==('|'), mid2) == 3
+
+    oq, os, omid = overlap_align("ACGTAAAA", "TTACGT")
+    @test replace(oq, "-" => "") == "ACGTAAAA"
+    @test replace(os, "-" => "") == "TTACGT"
+    @test ncodeunits(oq) == ncodeunits(os) == ncodeunits(omid)
+    @test count(==('|'), omid) >= 4
+
+    oq2, os2, _ = overlap_align("AAAACGT", "ACGT")
+    @test replace(oq2, "-" => "") == "AAAACGT"
+    @test replace(os2, "-" => "") == "ACGT"
+
+    proj = IgBench.project_query_stop("ACGTAAAA", 4)
+    @test proj == "ACGT----"
+
+    gp = GermlinePaths(; v = VFA, d = DFA, j = JFA)
+    vseq = "ACGTACGTACGTAAAA"
+    gold = CallRecord[CallRecord("s1", vseq, "IGHV1-1*01", "IGHD1-1*01", "IGHJ1*01",
+                                 Span(1, 8), Span(9, 10), Span(11, 12))]
+    igb = CallRecord[CallRecord("s1", vseq, "IGHV1-1*01", "IGHD1-1*01", "IGHJ1*01",
+                                Span(2, 8), Span(9, 10), Span(11, 12))]
+    swig = CallRecord[CallRecord("s1", vseq, "IGHV1-1*01", "IGHD1-1*01", "IGHJ1*01",
+                                 Span(1, 10), Span(9, 10), Span(11, 12))]
+    idx = IgBench.germline_sequence_index(gp)
+    rng = MersenneTwister(1)
+    preds = Dict{String,Vector{CallRecord}}("igblast" => igb, "swig" => swig)
+    cell = span_gallery_cell(preds, gold, idx, "p", "igblast", Val(:v), Val(:start);
+                             n_sample = 10, rng, tool_order = ["igblast", "swig"])
+    @test cell["kind"] == "start"
+    @test cell["locus"] == "v"
+    @test cell["n_disagree"] == 1
+    @test cell["rate"] == 1.0
+    @test cell["unique_rate"] == 1.0
+    @test cell["shared_rate"] == 0.0
+    @test length(cell["samples"]) == 1
+    samp = cell["samples"][1]
+    @test samp["share"] == "unique"
+    @test haskey(cell["offsets"], "igblast")
+    @test haskey(cell["offsets"]["igblast"], "start")
+    @test cell["offsets"]["igblast"]["start"]["n"] == 1
+    @test samp["delta_start"] == 1
+    rows = samp["msa"]["rows"]
+    ids = [r["id"] for r in rows]
+    @test ids == ["query", "germline", "gold", "igblast", "swig"]
+    w = samp["msa"]["width"]
+    @test all(r -> ncodeunits(r["seq"]) == w, rows)
+    @test replace(rows[1]["seq"], "-" => "") == vseq
+    @test replace(rows[2]["seq"], "-" => "") == idx["IGHV1-1*01"]
+    gold_row = rows[3]
+    igb_row = rows[4]
+    swig_row = rows[5]
+    @test gold_row["stop"] == 8
+    @test igb_row["stop"] == 8
+    @test swig_row["stop"] == 10
+    @test replace(gold_row["seq"], "-" => "") == vseq[1:8]
+    @test replace(swig_row["seq"], "-" => "") == vseq[1:10]
+    @test count(==('-'), swig_row["seq"]) < count(==('-'), gold_row["seq"])
+
+    both = CallRecord[CallRecord("s1", vseq, "IGHV1-1*01", "IGHD1-1*01", "IGHJ1*01",
+                                 Span(2, 8), Span(9, 10), Span(11, 12))]
+    same_wrong = Dict{String,Vector{CallRecord}}("igblast" => both, "swig" => both)
+    cell2 = span_gallery_cell(same_wrong, gold, idx, "p", "igblast", Val(:v), Val(:start);
+                              n_sample = 10, rng = MersenneTwister(1),
+                              tool_order = ["igblast", "swig"])
+    @test cell2["shared_rate"] == 1.0
+    @test cell2["unique_rate"] == 0.0
+    @test cell2["samples"][1]["share"] == "shared"
+
+    cells = span_gallery(igb, gold, gp, "p", "tool"; n_sample = 10, rng = MersenneTwister(2))
+    @test length(cells) == 9
+    @test any(c -> c["kind"] == "stop" && c["locus"] == "v" && c["n_disagree"] == 0, cells)
 end

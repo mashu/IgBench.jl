@@ -67,21 +67,36 @@ function tags_to_dict(tags)
     d
 end
 
+function calls_aligned_to_ids(ids::AbstractVector{<:AbstractString},
+                              rows::AbstractVector{CallRecord})
+    by = Dict{String,CallRecord}(r.sequence_id => r for r in rows)
+    out = Vector{CallRecord}(undef, length(ids))
+    for i in eachindex(ids)
+        id = String(ids[i])
+        haskey(by, id) || error("prediction missing sequence_id $id")
+        out[i] = by[id]
+    end
+    out
+end
+
 """
-    run_suite(suite; mode, store, step, tags, cache) -> BenchResult
+    run_suite(suite; mode, store, step, tags, cache, reuse_predictions) -> BenchResult
 
 Library entrypoint for standalone scripts and IgFormer embedding.
 Pass `store = nothing` / [`NullRunStore`](@ref) to skip disk writes.
 Pass `cache = PanelCache(dir)` to freeze panel sequences across diagnostic steps.
 
 Each tool is annotated **once** per panel; that pass is timed and scored.
+Pass `reuse_predictions=true` with a [`DirectoryRunStore`](@ref) to load
+existing `predictions/<panel>__<tool>.airr.tsv.gz` instead of re-annotating.
 """
 function run_suite(suite::BenchSuite;
                    mode::RunMode = FullReportMode(),
                    store = nothing,
                    step = nothing,
                    tags = (;),
-                   cache = nothing)
+                   cache = nothing,
+                   reuse_predictions::Bool = false)
     store_obj = isnothing(store) ? NullRunStore() : store
     tag_dict = tags_to_dict(tags)
     !isnothing(step) && (tag_dict["step"] = Int(step))
@@ -90,8 +105,11 @@ function run_suite(suite::BenchSuite;
     metric_rows = Dict{String,Any}[]
     nested = Dict{String,Any}()
     timing_rows = Dict{String,Any}[]
+    gallery_rows = Dict{String,Any}[]
 
     tspec = merge_timing(mode, suite.timing)
+    want_gallery = include_span_gallery(mode)
+    prior_timing = stored_timing_map(store_obj)
 
     for panel_spec in suite.panels
         panel = panel_for_mode(panel_spec, mode)
@@ -100,10 +118,25 @@ function run_suite(suite::BenchSuite;
 
         preds = Dict{String,Vector{CallRecord}}()
         for tool in suite.tools
+            tname = tool_name(tool)
+            pred_file = reuse_predictions ? predictions_path(store_obj, data.id, tname) : ""
+            tkey = (data.id, tname)
+            if !isempty(pred_file) && isfile(pred_file) && haskey(prior_timing, tkey)
+                rows = calls_aligned_to_ids(data.ids, read_airr_calls(pred_file))
+                preds[tname] = rows
+                if tspec.repeats > 0
+                    td = copy(prior_timing[tkey])
+                    td["panel"] = data.id
+                    td["species"] = data.species
+                    merge!(td, tag_dict)
+                    push!(timing_rows, td)
+                end
+                continue
+            end
             rows, tr = annotate_timed(tool, data.sequences, data.ids, data.germline, tspec)
-            preds[tool_name(tool)] = rows
+            preds[tname] = rows
             if store_predictions(mode)
-                write_predictions!(store_obj, data.id, tool_name(tool), rows)
+                write_predictions!(store_obj, data.id, tname, rows)
             end
             if tspec.repeats > 0
                 td = timing_to_dict(tr)
@@ -145,6 +178,13 @@ function run_suite(suite::BenchSuite;
                 push!(metric_rows, row)
                 nested[data.id][key][metric_name(m)] = metric_dict(mv)
             end
+            if want_gallery && cmp.ref_tool == ":gold"
+                rng = MersenneTwister(hash((data.id, cmp.pred_tool)))
+                tool_order = [tool_name(t) for t in suite.tools]
+                append!(gallery_rows, span_gallery(preds, ref, data.germline,
+                                                   data.id, cmp.pred_tool;
+                                                   rng, tool_order))
+            end
         end
     end
 
@@ -158,6 +198,7 @@ function run_suite(suite::BenchSuite;
         "panels" => panels_meta,
         "metrics" => metric_rows,
         "timing" => timing_rows,
+        "span_gallery" => gallery_rows,
     )
     write_manifest!(store_obj, Dict{String,Any}(
         "schema_version" => payload["schema_version"],
@@ -170,6 +211,7 @@ function run_suite(suite::BenchSuite;
     write_panels_meta!(store_obj, panels_meta)
     write_metrics_bundle!(store_obj, metric_rows, nested)
     write_timing!(store_obj, timing_rows)
+    want_gallery && write_span_gallery!(store_obj, gallery_rows)
     write_report_if_full(mode, store_obj, payload)
 
     BenchResult(suite.name, mode_name(mode),

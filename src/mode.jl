@@ -32,6 +32,9 @@ mode_name(::FullReportMode) = "full"
 store_predictions(m::DiagnosticMode) = m.store_predictions
 store_predictions(m::FullReportMode) = m.store_predictions
 
+include_span_gallery(::DiagnosticMode) = false
+include_span_gallery(::FullReportMode) = true
+
 function timing_spec(m::DiagnosticMode)
     TimingSpec(warmup = 0, repeats = m.timing_repeats, threads = 1)
 end

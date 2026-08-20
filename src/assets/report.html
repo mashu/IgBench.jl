@@ -24,7 +24,7 @@
     }
     header {
       padding: 1.75rem 2.25rem 0.25rem;
-      max-width: 980px;
+      max-width: 1100px;
       margin: 0 auto;
     }
     header .kicker {
@@ -40,7 +40,7 @@
       color: var(--muted);
     }
     header .meta { color: #71717a; font-size: 12px; }
-    main { padding: 0.5rem 2.25rem 3.5rem; max-width: 980px; margin: 0 auto; }
+    main { padding: 0.5rem 2.25rem 3.5rem; max-width: 1100px; margin: 0 auto; }
     .hero {
       padding: 1.75rem 0 2.5rem;
       border-bottom: 1px solid var(--line);
@@ -87,6 +87,7 @@
     }
     .chart { width: 100%; margin-top: 0.5rem; }
     .chart svg { width: 100%; height: auto; display: block; }
+    .chart svg rect.clickable { cursor: pointer; }
     .legend {
       display: flex;
       flex-wrap: wrap;
@@ -202,6 +203,89 @@
     #tip strong { display: block; margin-bottom: 0.3rem; font-size: 13px; }
     #tip .row { color: var(--muted); display: flex; justify-content: space-between; gap: 1.25rem; }
     #tip .row b { color: var(--fg); font-weight: 550; }
+    .span-picks { display: flex; flex-wrap: wrap; gap: 0.75rem 1.1rem; }
+    #span-viewer { margin-top: 1.15rem; }
+    #span-viewer[hidden] { display: none; }
+    .span-head {
+      color: var(--muted);
+      font-size: 13px;
+      margin: 0 0 0.7rem;
+    }
+    .pair {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      padding: 0.85rem 1rem 1rem;
+      margin-bottom: 0.75rem;
+    }
+    .pair h3 {
+      margin: 0 0 0.35rem;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .pair .meta {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 0.55rem;
+    }
+    .aln-block { margin-top: 0.65rem; }
+    .aln-block .lab {
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 0.25rem;
+    }
+    pre.aln {
+      margin: 0;
+      overflow-x: auto;
+      font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #e4e4e7;
+      background: #0a0a0a;
+      padding: 0.55rem 0.7rem;
+      border: 1px solid var(--line);
+      white-space: pre;
+    }
+    pre.aln .gutter { color: #71717a; }
+    pre.aln .b-match, .aln-legend .b-match { color: #4ade80; }
+    pre.aln .b-mis, .aln-legend .b-mis { color: #fb7185; font-weight: 700; }
+    pre.aln .b-ins, .aln-legend .b-ins { color: #38bdf8; background: #0b1c2e; }
+    pre.aln .b-del, .aln-legend .b-del { color: #c084fc; background: #1c1430; }
+    pre.aln .b-trim, .aln-legend .b-trim { color: #52525b; }
+    pre.aln [data-col] { cursor: cell; }
+    pre.aln [data-col].msa-hover { background: #3f3f46; }
+    pre.aln [data-col].msa-hl { background: #fde047; color: #111; }
+    .msa-col-status {
+      color: var(--muted);
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      margin: 0.35rem 0 0;
+      min-height: 1.2em;
+    }
+    .offset-grid .lab {
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 0.25rem;
+    }
+    @media (max-width: 800px) {
+      .offset-grid { grid-template-columns: 1fr; }
+    }
+    .aln-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem 1.15rem;
+      margin: 0 0 0.75rem;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .aln-legend i {
+      font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-style: normal;
+      padding: 0 0.2rem;
+      margin-right: 0.3rem;
+    }
+    .empty-note { color: var(--muted); font-size: 13px; }
   </style>
 </head>
 <body>
@@ -235,6 +319,44 @@
       <div class="kpis" id="timing-kpis"></div>
       <div class="chart" id="timing-plot"></div>
       <div class="legend" id="timing-legend"></div>
+    </section>
+    <section id="span-chart" class="hero" hidden>
+      <div class="hero-top">
+        <div>
+          <h2>Span disagreement vs gold</h2>
+          <p class="blurb">Start / stop mismatch rate and mean IoU shortfall (1 − IoU). Each bar stacks errors unique to this tool (lighter) on errors that match the other family&apos;s coordinates (darker: IgBLAST vs SWIG). Click a bar for offset densities and MSA samples.</p>
+        </div>
+        <div class="span-picks">
+          <label class="pick">tool
+            <select id="span-tool"></select>
+          </label>
+        </div>
+      </div>
+      <div class="kpis" id="span-kpis"></div>
+      <div class="chart" id="span-plot"></div>
+      <div class="legend" id="span-legend"></div>
+      <div id="span-viewer" hidden>
+        <p class="span-head" id="span-viewer-title"></p>
+        <div class="offset-grid" id="span-offset" hidden>
+          <div>
+            <div class="lab">Δ start (tool − gold)</div>
+            <div class="chart" id="span-offset-start"></div>
+          </div>
+          <div>
+            <div class="lab">Δ stop (tool − gold)</div>
+            <div class="chart" id="span-offset-stop"></div>
+          </div>
+        </div>
+        <div class="legend" id="span-offset-legend"></div>
+        <div class="aln-legend" id="aln-legend" hidden>
+          <span><i class="b-match">A</i>match vs germline</span>
+          <span><i class="b-mis">C</i>mismatch vs germline</span>
+          <span><i class="b-ins">A</i>query extra (gap in germline)</span>
+          <span><i class="b-del">-</i>gap vs germline</span>
+          <span><i class="b-trim">-</i>trimmed after locus end</span>
+        </div>
+        <div id="span-pairs"></div>
+      </div>
     </section>
     <section id="headline" class="plain" hidden>
       <div class="row-head">
@@ -304,6 +426,7 @@
           chartPanel = sel.value;
           renderAlleleChart();
           renderTimingChart();
+          renderSpanChart();
         });
       }
 
@@ -327,6 +450,33 @@
       if (timing.some(function (t) { return typeof t.wall_s === "number" && isFinite(t.wall_s); })) {
         document.getElementById("timing-chart").hidden = false;
         renderTimingChart();
+      }
+
+      const gallery = data.span_gallery || [];
+      const KIND_COLOR = {
+        start: { shared: "#9f1239", unique: "#fb7185" },
+        stop: { shared: "#c2410c", unique: "#fdba74" },
+        iou: { shared: "#0e7490", unique: "#67e8f9" }
+      };
+      const KIND_LABEL = { start: "start", stop: "stop", iou: "IoU miss" };
+      let spanTool = "";
+      if (gallery.length) {
+        document.getElementById("span-chart").hidden = false;
+        const spanTools = unique(gallery.map(function (c) { return c.pred; }));
+        spanTool = spanTools[0] || "";
+        const toolSel = document.getElementById("span-tool");
+        spanTools.forEach(function (t) {
+          const opt = document.createElement("option");
+          opt.value = t;
+          opt.textContent = t;
+          toolSel.appendChild(opt);
+        });
+        toolSel.value = spanTool;
+        toolSel.addEventListener("change", function () {
+          spanTool = toolSel.value;
+          renderSpanChart();
+        });
+        renderSpanChart();
       }
 
       const filterKeys = ["panel", "metric", "pred", "ref"];
@@ -463,15 +613,400 @@
         fillLegend(document.getElementById("timing-legend"), series);
       }
 
+      function renderSpanChart() {
+        const cells = gallery.filter(function (c) {
+          return c.panel === chartPanel && c.pred === spanTool;
+        });
+        const loci = ["v", "d", "j"];
+        const kinds = ["start", "stop", "iou"];
+        const series = [];
+        kinds.forEach(function (kind) {
+          ["shared", "unique"].forEach(function (part) {
+            series.push({
+              name: KIND_LABEL[kind] + " " + part,
+              kind: kind,
+              stack: kind,
+              part: part,
+              color: KIND_COLOR[kind][part],
+              values: loci.map(function (loc) {
+                const cell = cells.filter(function (c) { return c.locus === loc && c.kind === kind; })[0];
+                const key = part + "_rate";
+                const r = cell ? cell[key] : null;
+                return r != null && typeof r === "number" && isFinite(r) ? r : null;
+              })
+            });
+          });
+        });
+        const kpis = document.getElementById("span-kpis");
+        kpis.replaceChildren();
+        function cellVD(kind) {
+          return cells.filter(function (c) { return c.locus === "v" && c.kind === kind; })[0];
+        }
+        const vStart = cellVD("start");
+        const vStop = cellVD("stop");
+        const vIou = cellVD("iou");
+        if (vStart && vStart.rate != null) kpis.appendChild(kpiEl(pct(vStart.rate), spanTool + " V start"));
+        if (vStop && vStop.rate != null) kpis.appendChild(kpiEl(pct(vStop.rate), "V stop"));
+        if (vStart && vStart.unique_rate != null) {
+          kpis.appendChild(kpiEl(pct(vStart.unique_rate), "V start unique"));
+        }
+
+        document.getElementById("span-plot").replaceChildren(
+          groupedBars(["V", "D", "J"], series, {
+            yMax: 1,
+            tickFmt: function (v) { return Math.round(v * 100) + "%"; },
+            barFmt: function (v) { return (v * 100).toFixed(1) + "%"; },
+            onBar: function (hit) {
+              const loc = loci[hit.gi];
+              showSpanSamples(loc, hit.kind || hit.series);
+            }
+          })
+        );
+        fillLegend(document.getElementById("span-legend"), series);
+      }
+
+      function showSpanSamples(locus, kind) {
+        const cell = gallery.filter(function (c) {
+          return c.panel === chartPanel && c.pred === spanTool &&
+                 c.locus === locus && c.kind === kind;
+        })[0];
+        const viewer = document.getElementById("span-viewer");
+        const title = document.getElementById("span-viewer-title");
+        const pairs = document.getElementById("span-pairs");
+        const offsetWrap = document.getElementById("span-offset");
+        viewer.hidden = false;
+        if (!cell) {
+          title.textContent = "";
+          document.getElementById("aln-legend").hidden = true;
+          offsetWrap.hidden = true;
+          pairs.replaceChildren(emptyNote("No gallery cell for this bar."));
+          return;
+        }
+        const nBad = cell.n_disagree == null ? 0 : cell.n_disagree;
+        const nScored = cell.n_scored == null ? 0 : cell.n_scored;
+        const nU = cell.n_unique == null ? 0 : cell.n_unique;
+        const nS = cell.n_shared == null ? 0 : cell.n_shared;
+        title.textContent = spanTool + " · " + locus.toUpperCase() + " " + kind +
+          " — " + nBad + " / " + nScored + " disagree (" + nU + " unique, " + nS +
+          " shared) · showing " + (cell.samples ? cell.samples.length : 0) + " sampled reads";
+        renderOffsetPlots(cell);
+        if (!cell.samples || !cell.samples.length) {
+          pairs.replaceChildren(emptyNote("No disagreements to sample."));
+          document.getElementById("aln-legend").hidden = true;
+          viewer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          return;
+        }
+        document.getElementById("aln-legend").hidden = false;
+        const frag = document.createDocumentFragment();
+        cell.samples.forEach(function (s, i) {
+          frag.appendChild(pairCard(s, i, locus, kind));
+        });
+        pairs.replaceChildren(frag);
+        viewer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+
+      function renderOffsetPlots(cell) {
+        const wrap = document.getElementById("span-offset");
+        const offs = cell.offsets || {};
+        const names = Object.keys(offs);
+        if (!names.length) {
+          wrap.hidden = true;
+          document.getElementById("span-offset-legend").replaceChildren();
+          return;
+        }
+        wrap.hidden = false;
+        document.getElementById("span-offset-start").replaceChildren(
+          offsetDensitySvg(offs, "start"));
+        document.getElementById("span-offset-stop").replaceChildren(
+          offsetDensitySvg(offs, "stop"));
+        const legendSeries = names.map(function (t) {
+          const h = offs[t] && offs[t].start;
+          const n = h && h.n ? h.n : 0;
+          const z = h && h.zeros ? h.zeros : 0;
+          const exact = n > 0 ? (100 * z / n).toFixed(1) + "% exact" : "";
+          return { name: t + (exact ? " · " + exact : ""), color: colorOf[t] || "#a1a1aa" };
+        });
+        fillLegend(document.getElementById("span-offset-legend"), legendSeries);
+      }
+
+      function offsetDensitySvg(offs, which) {
+        const W = 440, H = 180, L = 42, R = 12, T = 10, B = 28;
+        const plotW = W - L - R, plotH = H - T - B;
+        const bw = 1.25;
+        const toolsHere = Object.keys(offs);
+        let xmin = Infinity, xmax = -Infinity;
+        const series = toolsHere.map(function (t) {
+          const h = (offs[t] && offs[t][which]) || { n: 0, zeros: 0, bins: [] };
+          const pts = (h.bins || []).map(function (b) { return { x: b[0], c: b[1] }; });
+          pts.forEach(function (p) {
+            if (p.x < xmin) xmin = p.x;
+            if (p.x > xmax) xmax = p.x;
+          });
+          return { name: t, color: colorOf[t] || "#a1a1aa", n: h.n || 0, pts: pts };
+        });
+        if (!isFinite(xmin)) { xmin = -5; xmax = 5; }
+        const pad = Math.max(4, Math.ceil(3 * bw));
+        xmin -= pad;
+        xmax += pad;
+        if (xmin > -2) xmin = -2;
+        if (xmax < 2) xmax = 2;
+        const xs = [];
+        for (let x = xmin; x <= xmax; x++) xs.push(x);
+        const inv = 1 / (bw * Math.sqrt(2 * Math.PI));
+        let yMax = 0;
+        series.forEach(function (s) {
+          s.ys = xs.map(function (x) {
+            let acc = 0;
+            s.pts.forEach(function (p) {
+              const z = (x - p.x) / bw;
+              acc += p.c * Math.exp(-0.5 * z * z);
+            });
+            const n = s.n > 0 ? s.n : 1;
+            const y = (acc * inv) / n;
+            if (y > yMax) yMax = y;
+            return y;
+          });
+        });
+        if (yMax <= 0) yMax = 1;
+        const xspan = xmax - xmin;
+        const xpix = function (x) { return L + ((x - xmin) / xspan) * plotW; };
+        const ypix = function (y) { return T + plotH * (1 - y / yMax); };
+        const svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img" });
+        svg.appendChild(svgEl("line", {
+          x1: L, x2: L + plotW, y1: T + plotH, y2: T + plotH,
+          stroke: "#3f3f46", "stroke-width": "1"
+        }));
+        const zero = xpix(0);
+        svg.appendChild(svgEl("line", {
+          x1: zero, x2: zero, y1: T, y2: T + plotH,
+          stroke: "#3f3f46", "stroke-width": "1", "stroke-dasharray": "3 3"
+        }));
+        [xmin, 0, xmax].forEach(function (tick) {
+          const lab = svgEl("text", {
+            x: xpix(tick), y: H - 8, fill: "#a1a1aa",
+            "font-size": "11", "text-anchor": "middle",
+            "font-family": "ui-sans-serif, system-ui, sans-serif"
+          });
+          lab.textContent = String(tick);
+          svg.appendChild(lab);
+        });
+        series.forEach(function (s) {
+          let d = "M " + xpix(xs[0]) + " " + ypix(s.ys[0]);
+          for (let i = 1; i < xs.length; i++) {
+            d += " L " + xpix(xs[i]) + " " + ypix(s.ys[i]);
+          }
+          const fillD = d + " L " + xpix(xs[xs.length - 1]) + " " + ypix(0) +
+            " L " + xpix(xs[0]) + " " + ypix(0) + " Z";
+          const area = svgEl("path", {
+            d: fillD, fill: s.color, "fill-opacity": "0.28", stroke: "none"
+          });
+          const line = svgEl("path", {
+            d: d, fill: "none", stroke: s.color, "stroke-width": "1.6"
+          });
+          svg.appendChild(area);
+          svg.appendChild(line);
+        });
+        return svg;
+      }
+
+      function pairCard(s, i, locus, kind) {
+        const d = document.createElement("div");
+        d.className = "pair";
+        const h = document.createElement("h3");
+        h.textContent = (i + 1) + ". " + (s.sequence_id || "read") +
+          (s.share ? " · " + s.share : "");
+        d.appendChild(h);
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.textContent = spanMetaLine(s, locus, kind);
+        d.appendChild(meta);
+        d.appendChild(msaBlock(s, locus));
+        return d;
+      }
+
+      function spanMetaLine(s, locus, kind) {
+        const gs = (s.gold_span && s.gold_span.length === 2) ? s.gold_span[0] + "–" + s.gold_span[1] : "—";
+        const parts = [locus.toUpperCase(), "gold " + gs];
+        const rows = (s.msa && s.msa.rows) || [];
+        rows.forEach(function (r) {
+          if (r.kind !== "trim" || r.id === "gold") return;
+          parts.push(r.label + " …" + (r.stop == null ? "—" : r.stop));
+        });
+        if (s.delta_start != null) parts.push("Δstart " + fmtDelta(s.delta_start));
+        if (s.delta_stop != null) parts.push("Δstop " + fmtDelta(s.delta_stop));
+        if (s.iou != null && typeof s.iou === "number") parts.push("IoU " + s.iou.toFixed(3));
+        parts.push("gold " + (s.gold_call || "—"));
+        if (s.pred_call && s.pred_call !== s.gold_call) parts.push("focus " + s.pred_call);
+        return parts.join(" · ");
+      }
+
+      function fmtDelta(v) {
+        if (v == null || typeof v !== "number") return "—";
+        return (v > 0 ? "+" : "") + v;
+      }
+
+      function msaBlock(s, locus) {
+        const wrap = document.createElement("div");
+        wrap.className = "aln-block";
+        const lab = document.createElement("div");
+        lab.className = "lab";
+        const gl = s.gold_gl || s.gold_call || "—";
+        lab.textContent = "MSA · full query × full germline " + gl +
+          " · rows trimmed to " + String(locus).toUpperCase() + " end";
+        wrap.appendChild(lab);
+        const pre = document.createElement("pre");
+        pre.className = "aln";
+        if (!s.msa || !s.msa.rows || !s.msa.rows.length) {
+          pre.textContent = "(no MSA)";
+        } else {
+          fillMsa(pre, s.msa);
+        }
+        wrap.appendChild(pre);
+        const status = document.createElement("div");
+        status.className = "msa-col-status";
+        status.textContent = "click a column to highlight";
+        wrap.appendChild(status);
+        if (s.msa && s.msa.rows && s.msa.rows.length) {
+          bindMsaHighlight(pre, status, s.msa);
+        }
+        return wrap;
+      }
+
+      function msaClass(ch, qch, gch, kind) {
+        if (kind === "trim" && ch === "-" && qch && qch !== "-") return "b-trim";
+        if (kind === "germline") return baseClass(qch || "-", gch || "-");
+        return baseClass(ch || "-", gch || "-");
+      }
+
+      function fillMsa(pre, msa) {
+        const width = 80;
+        const rows = msa.rows || [];
+        let n = 0;
+        let querySeq = "";
+        let glSeq = "";
+        rows.forEach(function (r) {
+          n = Math.max(n, (r.seq || "").length);
+          if (r.kind === "query") querySeq = r.seq || "";
+          if (r.kind === "germline") glSeq = r.seq || "";
+        });
+        pre._msaRows = rows;
+        const labW = Math.max(8, ...rows.map(function (r) { return (r.label || r.id || "").length; }));
+        for (let i = 0; i < n; i += width) {
+          const ruler = document.createElement("span");
+          ruler.className = "gutter";
+          ruler.textContent = padLabel("", labW) + " " + String(i + 1).padStart(4, " ");
+          pre.appendChild(ruler);
+          pre.appendChild(document.createTextNode("\n"));
+          rows.forEach(function (r) {
+            const gut = document.createElement("span");
+            gut.className = "gutter";
+            gut.textContent = padLabel(r.label || r.id || "", labW) + " ";
+            pre.appendChild(gut);
+            const chunk = (r.seq || "").slice(i, i + width);
+            const qn = querySeq.slice(i, i + width);
+            const gn = glSeq.slice(i, i + width);
+            appendMsaSeq(pre, chunk, qn, gn, r.kind, i);
+            pre.appendChild(document.createTextNode("\n"));
+          });
+          if (i + width < n) pre.appendChild(document.createTextNode("\n"));
+        }
+      }
+
+      function padLabel(s, w) {
+        if (s.length >= w) return s;
+        return s + " ".repeat(w - s.length);
+      }
+
+      function appendMsaSeq(parent, seq, q, g, kind, col0) {
+        for (let i = 0; i < seq.length; i++) {
+          const s = document.createElement("span");
+          s.className = msaClass(seq[i] || "-", q[i] || "-", g[i] || "-", kind);
+          s.textContent = seq[i] || "-";
+          s.setAttribute("data-col", String(col0 + i));
+          parent.appendChild(s);
+        }
+      }
+
+      function bindMsaHighlight(pre, status, msa) {
+        function colLabel(col) {
+          const rows = (msa && msa.rows) || [];
+          const bits = ["col " + (col + 1)];
+          rows.forEach(function (r) {
+            const ch = (r.seq || "")[col];
+            if (ch == null) return;
+            bits.push((r.label || r.id) + " " + ch);
+          });
+          return bits.join(" · ");
+        }
+        function mark(cls, col) {
+          pre.querySelectorAll("[data-col]." + cls).forEach(function (el) {
+            el.classList.remove(cls);
+          });
+          if (col == null) return;
+          pre.querySelectorAll("[data-col=\"" + col + "\"]").forEach(function (el) {
+            el.classList.add(cls);
+          });
+        }
+        pre.addEventListener("mousemove", function (e) {
+          const hit = e.target.closest("[data-col]");
+          if (!hit || !pre.contains(hit)) {
+            mark("msa-hover", null);
+            return;
+          }
+          mark("msa-hover", hit.getAttribute("data-col"));
+        });
+        pre.addEventListener("mouseleave", function () {
+          mark("msa-hover", null);
+        });
+        pre.addEventListener("click", function (e) {
+          const hit = e.target.closest("[data-col]");
+          if (!hit || !pre.contains(hit)) return;
+          const col = hit.getAttribute("data-col");
+          const prev = pre.getAttribute("data-hl");
+          if (prev === col) {
+            pre.removeAttribute("data-hl");
+            mark("msa-hl", null);
+            status.textContent = "click a column to highlight";
+            return;
+          }
+          pre.setAttribute("data-hl", col);
+          mark("msa-hl", col);
+          status.textContent = colLabel(parseInt(col, 10));
+        });
+      }
+
+      function baseClass(qc, gc) {
+        if (!qc) qc = " ";
+        if (!gc) gc = " ";
+        if (qc === gc && qc !== "-" && qc !== " ") return "b-match";
+        if (qc === "-" && gc !== "-") return "b-del";
+        if (gc === "-" && qc !== "-") return "b-ins";
+        if (qc === " " || gc === " ") return "gutter";
+        return "b-mis";
+      }
+
+      function emptyNote(text) {
+        const p = document.createElement("p");
+        p.className = "empty-note";
+        p.textContent = text;
+        return p;
+      }
+
       function groupedBars(groupLabels, series, opt) {
         const W = 920, H = 360, L = 58, R = 18, T = 32, B = 44;
         const plotW = W - L - R, plotH = H - T - B;
         const nG = groupLabels.length;
-        const nS = Math.max(series.length, 1);
         const gW = plotW / Math.max(nG, 1);
+        const stackOf = function (s) { return s.stack || s.name; };
+        const stackIds = [];
+        series.forEach(function (s) {
+          const id = stackOf(s);
+          if (stackIds.indexOf(id) < 0) stackIds.push(id);
+        });
+        const nStacks = Math.max(stackIds.length, 1);
         const inner = gW * (opt.single ? 0.42 : 0.7);
         const gap = 3;
-        const barW = opt.single ? inner : Math.max((inner - gap * (nS - 1)) / nS, 6);
+        const barW = opt.single ? inner : Math.max((inner - gap * (nStacks - 1)) / nStacks, 6);
         const yMax = opt.yMax > 0 ? opt.yMax : 1;
 
         const svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img" });
@@ -500,34 +1035,53 @@
           xLab.textContent = label;
           svg.appendChild(xLab);
 
-          series.forEach(function (s, si) {
-            const v = s.values[gi];
-            if (v == null) return;
-            const h = plotH * (v / yMax);
+          stackIds.forEach(function (sid, si) {
+            const members = series.filter(function (s) { return stackOf(s) === sid; });
             const x = opt.single
               ? gx + (gW - barW) / 2
               : gx + (gW - inner) / 2 + si * (barW + gap);
-            const y = T + plotH - h;
-            const rect = svgEl("rect", {
-              x: x, y: y, width: barW, height: Math.max(h, 0),
-              fill: s.color, rx: "2", ry: "2"
-            });
-            const tipTitle = opt.single ? s.name : groupLabels[gi];
-            const tipBody = opt.single
-              ? [["Wall clock", opt.barFmt(v)]]
-              : series.map(function (ss) {
-                  const vv = ss.values[gi];
-                  return [ss.name, vv == null ? "—" : opt.barFmt(vv)];
+            let acc = 0;
+            const total = members.reduce(function (sum, s) {
+              const v = s.values[gi];
+              return sum + (v != null && typeof v === "number" && isFinite(v) ? v : 0);
+            }, 0);
+            members.forEach(function (s) {
+              const v = s.values[gi];
+              if (v == null || typeof v !== "number" || !isFinite(v) || v <= 0) return;
+              acc += v;
+              const h = plotH * (v / yMax);
+              const y = T + plotH - plotH * (acc / yMax);
+              const rect = svgEl("rect", {
+                x: x, y: y, width: barW, height: Math.max(h, 0),
+                fill: s.color, rx: members.length === 1 ? "2" : "0", ry: members.length === 1 ? "2" : "0"
+              });
+              if (opt.onBar) {
+                rect.setAttribute("class", "clickable");
+                rect.addEventListener("click", function () {
+                  opt.onBar({
+                    group: groupLabels[gi], series: sid, kind: s.kind || sid,
+                    value: total, gi: gi, si: si
+                  });
                 });
-            bindTip(rect, tipTitle, tipBody);
-            svg.appendChild(rect);
-            if (h > 14) {
+              }
+              const tipTitle = opt.single ? s.name : groupLabels[gi];
+              const tipBody = opt.single
+                ? [["Wall clock", opt.barFmt(v)]]
+                : members.map(function (ss) {
+                    const vv = ss.values[gi];
+                    return [ss.name, vv == null ? "—" : opt.barFmt(vv)];
+                  }).concat([["total", opt.barFmt(total)]]);
+              bindTip(rect, tipTitle, tipBody);
+              svg.appendChild(rect);
+            });
+            const hTot = plotH * (total / yMax);
+            if (hTot > 14 && total > 0) {
               const tl = svgEl("text", {
-                x: x + barW / 2, y: y - 7, fill: "#fafafa",
+                x: x + barW / 2, y: T + plotH - hTot - 7, fill: "#fafafa",
                 "font-size": "11", "text-anchor": "middle",
                 "font-family": "ui-sans-serif, system-ui, sans-serif"
               });
-              tl.textContent = opt.barFmt(v);
+              tl.textContent = opt.barFmt(total);
               svg.appendChild(tl);
             }
           });

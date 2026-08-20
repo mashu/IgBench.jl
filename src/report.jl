@@ -1,8 +1,8 @@
 # report.jl — Human-readable summary.md for full reports.
 
 function format_summary(suite_name::AbstractString,
-                        metrics::AbstractVector{<:AbstractDict},
-                        timing::AbstractVector{<:AbstractDict})
+                        metrics::AbstractVector,
+                        timing::AbstractVector)
     io = IOBuffer()
     println(io, "# IgBench report: ", suite_name)
     println(io)

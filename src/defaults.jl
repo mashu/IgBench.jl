@@ -34,7 +34,8 @@ function suite_from_manifest(manifest::DatasetManifest,
                              tools;
                              name::AbstractString = manifest.name,
                              timing::TimingSpec = TimingSpec(),
-                             sim_sets = SIM_SETS)
+                             sim_sets = SIM_SETS,
+                             drop_d_frac::Real = 0)
     panels = AbstractPanel[]
     for src in manifest.sim
         for s in sim_sets
@@ -46,6 +47,14 @@ function suite_from_manifest(manifest::DatasetManifest,
     end
     for src in manifest.airr
         push!(panels, AirrPanel(src))
+    end
+    frac = Float64(drop_d_frac)
+    if frac > 0
+        extras = AbstractPanel[]
+        for p in panels
+            append_drop_d!(extras, p, frac)
+        end
+        append!(panels, extras)
     end
     comps = default_compares(tools)
     BenchSuite(name; panels, tools = collect(tools), compares = comps, timing)

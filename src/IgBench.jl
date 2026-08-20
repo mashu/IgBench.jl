@@ -23,9 +23,12 @@ include("annotator.jl")
 include("igblast.jl")
 include("swiftig.jl")
 include("metric.jl")
+include("msa.jl")
+include("span_gallery.jl")
 include("timing.jl")
 include("mode.jl")
 include("panel.jl")
+include("drop_d.jl")
 include("store.jl")
 include("report.jl")
 include("report_html.jl")
@@ -43,15 +46,19 @@ export
     default_metrics, agreement_metrics, call_metrics, call_records,
     TimingSpec, TimingResult, time_annotate, annotate_timed,
     RunMode, DiagnosticMode, FullReportMode, mode_name,
-    AbstractPanel, PanelData, SimGoldPanel, AirrPanel, load_panel,
+    AbstractPanel, PanelData, SimGoldPanel, AirrPanel, DropDPanel, load_panel,
     PanelCache, load_panel_cached, SIM_SETS,
+    drop_d_from_record, drop_d_from_panel,
     AbstractRunStore, DirectoryRunStore, NullRunStore, SCHEMA_VERSION,
+    predictions_path, write_span_gallery!,
     CompareSpec, BenchSuite, BenchResult, run_suite,
     default_compares, suite_from_manifest,
     read_airr_calls, write_airr_calls,
     parse_allele_calls, normalize_allele, allele_gene, call_field_empty,
     primary_allele_call, allele_score,
     span_iou, span_exact, span_start, span_stop,
+    SPAN_SAMPLE_N, semiglobal_align, overlap_align, query_germline_msa,
+    span_gallery, span_gallery_cell,
     germline_allele_names, validate_gold_calls!
 
 end # module
