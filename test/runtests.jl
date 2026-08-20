@@ -24,6 +24,9 @@ const JFA = joinpath(FIX, "J.fasta")
     @test allele_score("A/B", "A") == 0
     @test allele_score("A/B", "A/B") == 1
     @test allele_score("A,B", "A,B") == 1
+    @test allele_score("", "") == 1
+    @test allele_score("D", "") == 0
+    @test allele_score("", "D") == 0
     @test allele_score("", "IGHV1-46*01") == 0
     @test allele_score("IGHV1-69*01/IGHV1-69D*01",
                        "IGHV1-69*01/IGHV1-69D*01") == 1
@@ -75,7 +78,7 @@ end
     @test m.j == 0.5
     @test m.d == 1.0
     @test m.n == 2
-    @test m.d_n == 1
+    @test m.d_n == 2
     @test m.v_n == 2 && m.j_n == 2
 
     gold2 = [
@@ -87,9 +90,17 @@ end
         CallRecord("b", "BBB", "Z", "", "J"),
     ]
     f = evaluate(AlleleAccuracy(), pred2, gold2)
-    @test f.v ≈ 0.5 && f.v_n == 1
+    @test f.v ≈ 0.25 && f.v_n == 2
     @test f.d == 0.5 && f.d_n == 2
     @test f.j == 1.0 && f.j_n == 2
+    nod = evaluate(AlleleAccuracy(),
+                   CallRecord[CallRecord("a", "AAA", "V", "", "J")],
+                   CallRecord[CallRecord("a", "AAA", "V", "", "J")])
+    @test nod.d == 1.0 && nod.d_n == 1
+    nfp = evaluate(AlleleAccuracy(),
+                   CallRecord[CallRecord("a", "AAA", "V", "D1", "J")],
+                   CallRecord[CallRecord("a", "AAA", "V", "", "J")])
+    @test nfp.d == 0.0 && nfp.d_n == 1
     cm = call_metrics(["A,B"], [""], ["J"], ["A"], ["X"], ["J"])
     @test cm.v ≈ 0.5 && cm.d == 0.0 && cm.j == 1.0
     @test cm isa MetricValue
@@ -136,6 +147,21 @@ end
     @test isnan(xe.v) && xe.v_n == 0
     xp = evaluate(CallPresent(), pred_extra, gold_extra)
     @test xp.d == 0.0 && xp.d_n == 1
+    mh = IgBench.call_miss_hists(pred_span, gold_span, "p", "t")
+    @test mh["d_miss"] == 1
+    @test mh["d"]["n"] == 1
+    @test mh["d"]["bins"] == [[5, 1]]
+    @test length(mh["d_reads"]) == 1
+    @test mh["d_reads"][1]["sequence_id"] == "b"
+    @test mh["d_reads"][1]["length"] == 5
+    @test mh["d_reads"][1]["sequence"] == "BBB"
+    gtrim = CallRecord("r1", "NNNNTTGGGNNN", "V", "IGHD1", "J",
+                       Span(1, 4), Span(5, 9), Span(10, 12))
+    ptrim = CallRecord("r1", "NNNNTTGGGNNN", "V", "", "J",
+                       Span(1, 4), EMPTY_SPAN, Span(10, 12))
+    mt = IgBench.call_miss_hists(CallRecord[ptrim], CallRecord[gtrim], "p", "t")
+    @test mt["d_reads"][1]["d_nt"] == "TTGGG"
+    @test mt["d_reads"][1]["length"] == 5
     recs = call_records(["A"], ["D"], ["J"]; prefix = "x")
     @test length(recs) == 1 && recs[1].sequence_id == "x1" && recs[1].v_call == "A"
 end
@@ -185,6 +211,7 @@ end
     @test isfile(joinpath(outdir, "report.html"))
     @test isfile(joinpath(outdir, "manifest.json"))
     @test isfile(joinpath(outdir, "span_gallery.json"))
+    @test isfile(joinpath(outdir, "call_miss.json"))
     html = read(joinpath(outdir, "report.html"), String)
     @test occursin("smoke", html)
     @test occursin("window.IGBENCH", html)
@@ -195,6 +222,10 @@ end
     @test occursin("id=\"miss-call-chart\"", html)
     @test occursin("id=\"miss-call-extra-plot\"", html)
     @test occursin("gold (no call)", html)
+    @test occursin("Click a missed bar", html)
+    @test occursin("gold segment length", html)
+    @test occursin("download FASTA", html)
+    @test occursin("gold_d_nt", html)
     @test occursin("id=\"miss-span-chart\"", html)
     @test occursin("outside this row", html)
     @test occursin("fillMsa", html)

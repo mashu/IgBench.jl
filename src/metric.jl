@@ -83,11 +83,28 @@ end
 """
 **Standard** tool-vs-gold allele metric: `1/n` on comma-separated ties.
 
-See [`allele_score`](@ref). Empty gold skipped; empty pred = 0.
+See [`allele_score`](@ref). Empty vs empty = correct; empty gold is not skipped.
 """
 struct AlleleAccuracy <: AbstractMetric end
 metric_name(::AlleleAccuracy) = "allele"
-evaluate(::AlleleAccuracy, pred, ref) = locus_scores(pred, ref, allele_score)
+evaluate(::AlleleAccuracy, pred, ref) = locus_all_scores(pred, ref, allele_score)
+
+"""Per-locus mean of `score_fn` over **all** reads (empty gold is not skipped)."""
+function locus_all_scores(pred::AbstractVector{CallRecord}, ref::AbstractVector{CallRecord},
+                         score_fn)
+    length(pred) == length(ref) || error("pred/ref length mismatch")
+    n = length(pred)
+    sv = sd = sj = 0.0
+    for i in 1:n
+        sv += Float64(score_fn(pred[i].v_call, ref[i].v_call))
+        sj += Float64(score_fn(pred[i].j_call, ref[i].j_call))
+        sd += Float64(score_fn(pred[i].d_call, ref[i].d_call))
+    end
+    MetricValue(v = n == 0 ? NaN : sv / n,
+                d = n == 0 ? NaN : sd / n,
+                j = n == 0 ? NaN : sj / n,
+                n = n, d_n = n, v_n = n, j_n = n)
+end
 
 """1 if the pred call is non-empty (gold already present). Empty pred = miss."""
 call_is_present(pred::AbstractString, ::AbstractString) = !call_field_empty(pred)

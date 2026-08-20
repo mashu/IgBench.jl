@@ -383,11 +383,16 @@
       <div class="hero-top">
         <div>
           <h2>Missing and extra allele calls vs gold</h2>
-          <p class="blurb">Missed: gold has a call, the tool does not. Extra: gold has no call, the tool emits one. The hollow bar is how often gold itself has no call (the extra-call denominator).</p>
+          <p class="blurb">Missed: gold has a call, the tool does not. Extra: gold has no call, the tool emits one. The hollow bar is how often gold itself has no call (the extra-call denominator). Click a missed bar for gold lengths; click a length bar to download those reads as FASTA.</p>
         </div>
       </div>
       <div class="chart" id="miss-call-plot"></div>
       <div class="chart" id="miss-call-extra-plot"></div>
+      <div id="miss-call-len" hidden>
+        <p class="span-head" id="miss-call-len-lab"></p>
+        <div class="chart" id="miss-call-len-plot"></div>
+        <p class="empty-note" id="miss-call-len-note" hidden></p>
+      </div>
       <div class="legend" id="miss-call-legend"></div>
       <div class="kpis" id="miss-call-kpis"></div>
     </section>
@@ -497,6 +502,7 @@
       const metrics = data.metrics || [];
       const timing = data.timing || [];
       const gallery = data.span_gallery || [];
+      const callMiss = data.call_miss || [];
       const tools = data.tools || unique(metrics.map(function (r) { return r.pred; }));
       const colorOf = {};
       tools.forEach(function (t, i) { colorOf[t] = PALETTE[i % PALETTE.length]; });
@@ -515,6 +521,9 @@
 
       let chartPanel = panels[0] || "";
       let locus = "v";
+      let missLenTool = null;
+      let missLenLoc = null;
+      let missLenNt = null;
 
       if (panels.length > 1) {
         const pick = document.getElementById("panel-pick");
@@ -533,6 +542,9 @@
           spanLoser = null;
           spanBinTool = null;
           spanBin = null;
+          missLenTool = null;
+          missLenLoc = null;
+          missLenNt = null;
           renderAlleleChart();
           renderMissedCallChart();
           renderTimingChart();
@@ -628,7 +640,7 @@
         document.getElementById("allele-blurb").textContent =
           "Mean 1/n allele score × 100" +
           (n != null ? ". n = " + n + " reads" : "") +
-          " (D scored only when gold D is present).";
+          " (empty vs empty = correct; a call vs gold no-call = wrong).";
 
         const groups = [
           { key: "v", label: "V allele" },
@@ -856,9 +868,25 @@
             groupedBars(missGroups.map(function (g) { return g.label; }), missSeries, {
               yMax: missMax <= 0 ? 1 : niceMax(missMax),
               yTitle: "missed calls",
-              xTitle: "gold has a call · tool does not",
+              xTitle: "gold has a call · tool does not · click a bar for lengths",
               tickFmt: countTick,
-              barFmt: function (v) { return String(Math.round(v)); }
+              barFmt: function (v) { return String(Math.round(v)); },
+              xs: missGroups.map(function (g) { return g.key; }),
+              selected: (missLenTool && missLenLoc)
+                ? { tool: missLenTool, bin: missLenLoc } : null,
+              onBar: function (hit) {
+                const loc = missGroups[hit.gi] && missGroups[hit.gi].key;
+                if (!loc) return;
+                if (missLenTool === hit.series && missLenLoc === loc) {
+                  missLenTool = null;
+                  missLenLoc = null;
+                  missLenNt = null;
+                } else {
+                  missLenTool = hit.series;
+                  missLenLoc = loc;
+                }
+                renderMissedCallChart();
+              }
             })
           );
         } else {
@@ -891,6 +919,152 @@
           extraPlot.replaceChildren();
           fillLegend(document.getElementById("miss-call-legend"), missSeries);
         }
+        renderMissLenHist();
+      }
+
+      function missHistRow(tool) {
+        for (let i = 0; i < callMiss.length; i++) {
+          const r = callMiss[i];
+          if (r && r.panel === chartPanel && r.pred === tool) return r;
+        }
+        return null;
+      }
+
+      function downloadText(filename, text) {
+        const blob = new Blob([text], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function fastaHeader(id) {
+        return String(id == null ? "read" : id).replace(/\s+/g, "_");
+      }
+
+      function missReadsFasta(reads, tool, loc, len) {
+        return reads.map(function (r) {
+          const span = r.span && r.span.length === 2 ? r.span[0] + "-" + r.span[1] : "none";
+          const dNt = r.d_nt ? String(r.d_nt) : "";
+          const name = fastaHeader(r.sequence_id) + (dNt ? "|d=" + dNt : "");
+          return ">" + name +
+            " tool=" + tool +
+            " missed=" + loc.toUpperCase() +
+            " gold_len=" + len +
+            " gold_d_nt=" + (dNt || ".") +
+            " gold_v=" + (r.v_call || ".") +
+            " gold_d=" + (r.d_call || ".") +
+            " gold_j=" + (r.j_call || ".") +
+            " gold_span=" + span + "\n" +
+            (r.sequence || "") + "\n";
+        }).join("");
+      }
+
+      function exportMissLenFasta(len) {
+        const row = missHistRow(missLenTool);
+        const key = missLenLoc + "_reads";
+        const all = (row && row[key]) || [];
+        const reads = all.filter(function (r) { return Number(r.length) === Number(len); });
+        const note = document.getElementById("miss-call-len-note");
+        if (!reads.length) {
+          note.hidden = false;
+          note.textContent = "No sequences stored for gold " + missLenLoc.toUpperCase() +
+            " length " + len + " nt.";
+          return;
+        }
+        const loc = missLenLoc;
+        const tool = missLenTool;
+        const fname = String(tool).replace(/[^\w.-]+/g, "_") +
+          "_missed_" + loc + "_len" + len + ".fasta";
+        downloadText(fname, missReadsFasta(reads, tool, loc, len));
+        note.hidden = false;
+        note.textContent = "Downloaded " + reads.length + " sequences → " + fname;
+      }
+
+      function lengthAxis(bins) {
+        let xmin = Infinity, xmax = -Infinity;
+        const occupied = {};
+        (bins || []).forEach(function (b) {
+          const x = b[0];
+          occupied[x] = b[1];
+          if (x < xmin) xmin = x;
+          if (x > xmax) xmax = x;
+        });
+        if (!isFinite(xmin)) return { xs: [1], occupied: occupied };
+        const xs = [];
+        if (xmax - xmin <= 40) {
+          if (xmin > 1) xmin = 1;
+          for (let x = xmin; x <= xmax; x++) xs.push(x);
+        } else {
+          Object.keys(occupied).map(Number).sort(function (a, b) { return a - b; })
+            .forEach(function (x) { xs.push(x); });
+        }
+        return { xs: xs, occupied: occupied };
+      }
+
+      function renderMissLenHist() {
+        const wrap = document.getElementById("miss-call-len");
+        const lab = document.getElementById("miss-call-len-lab");
+        const plot = document.getElementById("miss-call-len-plot");
+        if (!missLenTool || !missLenLoc) {
+          wrap.hidden = true;
+          plot.replaceChildren();
+          const note = document.getElementById("miss-call-len-note");
+          if (note) note.hidden = true;
+          return;
+        }
+        const row = missHistRow(missLenTool);
+        const hist = row && row[missLenLoc];
+        const nMiss = row && row[missLenLoc + "_miss"];
+        const bins = hist && hist.bins;
+        if (!bins || !bins.length) {
+          wrap.hidden = false;
+          lab.textContent = missLenTool + " · missed " + missLenLoc.toUpperCase() +
+            " · no gold span lengths stored" + (nMiss ? " (" + nMiss + " missed calls)" : "");
+          plot.replaceChildren();
+          return;
+        }
+        const axis = lengthAxis(bins);
+        let yMax = 0;
+        const values = axis.xs.map(function (x) {
+          const v = axis.occupied[x] || 0;
+          if (v > yMax) yMax = v;
+          return v;
+        });
+        wrap.hidden = false;
+        lab.textContent = missLenTool + " · missed " + missLenLoc.toUpperCase() +
+          " · gold segment length (nt) · " + (hist.n || 0) +
+          " with span" + (nMiss != null ? " / " + nMiss + " missed" : "") +
+          " · click a length bar to download FASTA";
+        const note = document.getElementById("miss-call-len-note");
+        if (note && !missLenNt) note.hidden = true;
+        plot.replaceChildren(
+          groupedBars(axis.xs.map(function (x) { return String(x); }), [{
+            name: missLenTool,
+            color: colorOf[missLenTool] || "#a1a1aa",
+            values: values
+          }], {
+            yMax: yMax <= 0 ? 1 : niceMax(yMax),
+            yTitle: "missed reads",
+            xTitle: "gold " + missLenLoc.toUpperCase() + " length (nt) · click a bar to download FASTA",
+            tickFmt: countTick,
+            barFmt: function (v) { return String(Math.round(v)); },
+            xs: axis.xs,
+            selected: missLenNt != null ? { tool: missLenTool, bin: missLenNt } : null,
+            onBar: function (hit) {
+              const len = axis.xs[hit.gi];
+              if (len == null || !(values[hit.gi] > 0)) return;
+              missLenNt = len;
+              exportMissLenFasta(len);
+              renderMissLenHist();
+            }
+          })
+        );
       }
 
       function renderMissedSpanChart() {

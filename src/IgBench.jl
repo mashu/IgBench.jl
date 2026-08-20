@@ -25,6 +25,7 @@ include("swiftig.jl")
 include("metric.jl")
 include("msa.jl")
 include("span_gallery.jl")
+include("call_events.jl")
 include("timing.jl")
 include("mode.jl")
 include("panel.jl")
@@ -50,7 +51,7 @@ export
     PanelCache, load_panel_cached, SIM_SETS,
     drop_d_from_record, drop_d_from_panel,
     AbstractRunStore, DirectoryRunStore, NullRunStore, SCHEMA_VERSION,
-    predictions_path, write_span_gallery!,
+    predictions_path, write_span_gallery!, write_call_miss!,
     CompareSpec, BenchSuite, BenchResult, run_suite,
     default_compares, suite_from_manifest,
     read_airr_calls, write_airr_calls,

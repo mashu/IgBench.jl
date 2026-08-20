@@ -1,15 +1,17 @@
-# Compare IgBLAST vs swig-cli RIAT-MP and AER on one IgSim gold panel.
+# Compare IgBLAST vs swig-cli RIAT-MP, AER, and AER+igblast_balanced
+# on one IgSim gold panel.
 #
 # Annotated grid: IgBLAST + aux, swig-cli v0.37.2 with prepare-reference.
-# All three tools are timed and scored on the same reads (allele + spans).
+# All tools are timed and scored on the same reads (allele + spans).
 #
 # IgSim is GitHub `main` (https://github.com/mashu/IgSim.jl). This script
 # only overrides `indel_rate` (default 0.3% of reads).
 #
 # Tools (each is annotated once and timed):
-#   igblast-aux      IgBLAST + J/CDR3 aux
-#   swig-riat-prep   v0.37.2 --assigner riat_mp --prepared-reference
-#   swig-aer-prep    v0.37.2 --assigner aer --prepared-reference
+#   igblast-aux                 IgBLAST + J/CDR3 aux
+#   swig-riat-prep              v0.37.2 --assigner riat_mp --prepared-reference
+#   swig-aer-prep               v0.37.2 --assigner aer --prepared-reference
+#   swig-aer-igblast-balanced   same AER path plus --calling-profile igblast_balanced
 #
 #   export IGBENCH_V=... IGBENCH_D=... IGBENCH_J=... IGBENCH_AUX=...
 #   export IGBENCH_N=20000 IGBENCH_THREADS=8
@@ -96,10 +98,10 @@ function print_allele_by_panel(metrics)
     panels = unique(String(r["panel"]) for r in rows)
     println()
     println("allele vs gold")
-    println(rpad("tool", 18), join((rpad(p, 36) for p in panels), " "))
+    println(rpad("tool", 28), join((rpad(p, 36) for p in panels), " "))
     tools = unique(String(r["pred"]) for r in rows)
     for tool in tools
-        print(rpad(tool, 18))
+        print(rpad(tool, 28))
         for p in panels
             found = false
             for r in rows
@@ -117,7 +119,7 @@ end
 
 const BIN = ensure_swig_cli(SWIG_VERSION)
 println("swig-cli v$SWIG_VERSION → $BIN")
-println("assigners riat_mp, aer (prepared-reference)")
+println("assigners riat_mp, aer, aer+igblast_balanced (prepared-reference)")
 println("V ", get(ENV, "IGBENCH_V", DEFAULT_V))
 println("D ", get(ENV, "IGBENCH_D", DEFAULT_D))
 println("J ", get(ENV, "IGBENCH_J", DEFAULT_J))
@@ -140,12 +142,12 @@ man = DatasetManifest("igblast_swig";
     airr = AirrSource[],
 )
 
-function swig_prep(name, assigner, prep)
+function swig_prep(name, assigner, prep, extra = String[])
     SwiftIGAnnotator(;
         name,
         bin = BIN,
         threads = THREADS,
-        extra_args = String["--vdj", "--assigner", assigner,
+        extra_args = String["--vdj", "--assigner", assigner, extra...,
                             "--prepared-reference", prep],
     )
 end
@@ -159,6 +161,8 @@ tools = AbstractAnnotator[
                      aux = AUX, num_threads = THREADS),
     swig_prep("swig-riat-prep", "riat_mp", PREP),
     swig_prep("swig-aer-prep", "aer", PREP),
+    swig_prep("swig-aer-igblast-balanced", "aer", PREP,
+              String["--calling-profile", "igblast_balanced"]),
 ]
 
 store = DirectoryRunStore(OUT)

@@ -106,6 +106,7 @@ function run_suite(suite::BenchSuite;
     nested = Dict{String,Any}()
     timing_rows = Dict{String,Any}[]
     gallery_rows = Dict{String,Any}[]
+    miss_rows = Dict{String,Any}[]
 
     tspec = merge_timing(mode, suite.timing)
     want_gallery = include_span_gallery(mode)
@@ -184,6 +185,10 @@ function run_suite(suite::BenchSuite;
             tool_order = [tool_name(t) for t in suite.tools]
             append!(gallery_rows, span_gallery(preds, data.gold, data.germline, data.id;
                                                rng, tool_order))
+            for t in tool_order
+                haskey(preds, t) || continue
+                push!(miss_rows, call_miss_hists(preds[t], data.gold, data.id, t))
+            end
         end
     end
 
@@ -198,6 +203,7 @@ function run_suite(suite::BenchSuite;
         "metrics" => metric_rows,
         "timing" => timing_rows,
         "span_gallery" => gallery_rows,
+        "call_miss" => miss_rows,
     )
     write_manifest!(store_obj, Dict{String,Any}(
         "schema_version" => payload["schema_version"],
@@ -211,6 +217,7 @@ function run_suite(suite::BenchSuite;
     write_metrics_bundle!(store_obj, metric_rows, nested)
     write_timing!(store_obj, timing_rows)
     want_gallery && write_span_gallery!(store_obj, gallery_rows)
+    !isempty(miss_rows) && write_call_miss!(store_obj, miss_rows)
     write_report_if_full(mode, store_obj, payload)
 
     BenchResult(suite.name, mode_name(mode),

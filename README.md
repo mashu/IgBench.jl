@@ -14,11 +14,12 @@ IgFormer; optional standalone script for full reports.
 
 **Allele calling** is [`AlleleAccuracy`](@ref) (name `"allele"`):
 
-1. Empty / `NA` / `.` **gold** → skip (not in the denominator) on V, D, and J.
-2. Present gold + empty **pred** → score `0` (false negative).
+1. Empty / `NA` / `.` on **both** sides → `1` (correct no-call, including no D).
+2. Empty gold + pred call → `0` (false positive). Empty pred + gold call → `0`.
 3. Full-string match → `1`. Else split on **commas only** (slash is part of an
    IMGT dual name such as `IGHV3-23*01/IGHV3-23D*01`); any pred token equal to
    any gold token → **`1 / n_pred`**.
+Every read is scored (empty gold is **not** skipped).
 
 **Segmentation** is independent of the allele score:
 

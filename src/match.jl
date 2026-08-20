@@ -1,11 +1,13 @@
 # match.jl — Allele scoring and span geometry (AIRR multi-call aware).
 #
 # Canonical tool-vs-gold allele score ([`AlleleAccuracy`](@ref) / [`allele_score`](@ref)):
-# 1. Empty / missing / `NA` / `.` **gold** → skip (not in the denominator).
-# 2. Non-empty gold + empty **pred** → score `0` (false negative).
-# 3. Full-string equality → `1` (identical multi-calls recapitulate).
-# 4. Else split on commas only (slash is part of an IMGT dual name);
+# 1. Empty / missing / `NA` / `.` on **both** sides → `1` (correct no-call).
+# 2. Empty gold + non-empty **pred** → `0` (false positive).
+# 3. Non-empty gold + empty **pred** → `0` (false negative).
+# 4. Full-string equality → `1` (identical multi-calls recapitulate).
+# 5. Else split on commas only (slash is part of an IMGT dual name);
 #    any pred token equal to any gold token → `1 / n_pred`.
+# Every read is in the denominator (empty gold is not skipped).
 
 """True for blank, `NA`, or `.` call fields."""
 function call_field_empty(field::AbstractString)
@@ -62,13 +64,16 @@ primary_allele_call(::Missing) = ""
 """
 Allele score in `[0, 1]`.
 
-Empty gold → `0` (caller should skip). Empty pred → `0`. Full-string match → `1`.
-Else if any comma-split pred token equals any gold token → `1 / n_pred`.
-Does not strip `_S` suffixes and does not split on `/`.
+Both empty → `1`. Empty gold + pred call → `0`. Empty pred + gold call → `0`.
+Full-string match → `1`. Else if any comma-split pred token equals any gold
+token → `1 / n_pred`. Does not strip `_S` suffixes and does not split on `/`.
 """
 function allele_score(pred::AbstractString, gold::AbstractString)
-    call_field_empty(gold) && return 0.0
-    call_field_empty(pred) && return 0.0
+    g_empty = call_field_empty(gold)
+    p_empty = call_field_empty(pred)
+    g_empty && p_empty && return 1.0
+    g_empty && return 0.0
+    p_empty && return 0.0
     p = strip(String(pred))
     g = strip(String(gold))
     p == g && return 1.0
@@ -83,7 +88,7 @@ end
 
 allele_score(pred::Missing, gold::AbstractString) = allele_score("", gold)
 allele_score(pred::AbstractString, gold::Missing) = allele_score(pred, "")
-allele_score(::Missing, ::Missing) = 0.0
+allele_score(::Missing, ::Missing) = 1.0
 
 """
 Intersection-over-union of pred vs gold (1-based inclusive).

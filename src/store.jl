@@ -1,6 +1,6 @@
 # store.jl — Dashboard-ready run artifacts (JSON / JSONL / AIRR).
 
-const SCHEMA_VERSION = 9
+const SCHEMA_VERSION = 11
 
 """Persistence backend for a single suite run."""
 abstract type AbstractRunStore end
@@ -95,6 +95,11 @@ function write_span_gallery!(s::DirectoryRunStore, obj)
     write_json(joinpath(s.root, "span_gallery.json"), obj)
 end
 
+function write_call_miss!(s::DirectoryRunStore, obj)
+    ensure_store!(s)
+    write_json(joinpath(s.root, "call_miss.json"), obj)
+end
+
 function write_summary!(s::DirectoryRunStore, text::AbstractString)
     ensure_store!(s)
     open(joinpath(s.root, "summary.md"), "w") do io
@@ -112,4 +117,5 @@ write_predictions!(::NullRunStore, _, _, _) = nothing
 write_metrics_bundle!(::NullRunStore, _, _) = nothing
 write_timing!(::NullRunStore, _) = nothing
 write_span_gallery!(::NullRunStore, _) = nothing
+write_call_miss!(::NullRunStore, _) = nothing
 write_summary!(::NullRunStore, _) = nothing
