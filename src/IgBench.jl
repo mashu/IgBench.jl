@@ -42,7 +42,7 @@ export
     CallableAnnotator, FakeAnnotator,
     IgBLASTAnnotator, SwiftIGAnnotator,
     AbstractMetric, metric_name, evaluate,
-    AlleleAccuracy, SpanIoU, SpanExact, SpanStart, SpanStop,
+    AlleleAccuracy, CallPresent, CallExtra, SpanIoU, SpanExact, SpanStart, SpanStop, SpanPresent,
     default_metrics, agreement_metrics, call_metrics, call_records,
     TimingSpec, TimingResult, time_annotate, annotate_timed,
     RunMode, DiagnosticMode, FullReportMode, mode_name,

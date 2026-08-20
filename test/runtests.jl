@@ -29,7 +29,8 @@ const JFA = joinpath(FIX, "J.fasta")
                        "IGHV1-69*01/IGHV1-69D*01") == 1
     @test call_field_empty("") && call_field_empty("NA") && call_field_empty(".")
     names = metric_name.(default_metrics())
-    @test names == ["allele", "span_iou", "span_exact", "span_start", "span_stop"]
+    @test names == ["allele", "call_present", "call_extra", "span_iou", "span_exact", "span_start",
+                    "span_stop", "span_present"]
 end
 
 @testset "spans" begin
@@ -114,6 +115,27 @@ end
     @test st.d == 0.5
     sp = evaluate(SpanStop(), pred_span, gold_span)
     @test sp.v == 0.5
+    cp = evaluate(CallPresent(), pred2, gold2)
+    @test cp.v == 1.0 && cp.v_n == 1
+    @test cp.d == 0.5 && cp.d_n == 2
+    @test cp.j == 1.0
+    pr = evaluate(SpanPresent(), pred_span, gold_span)
+    @test pr.v == 0.5 && pr.d == 0.5 && pr.j == 1.0
+    gold_extra = [
+        CallRecord("a", "AAA", "V", "", "J"),
+        CallRecord("b", "BBB", "V", "", "J"),
+        CallRecord("c", "CCC", "V", "D", "J"),
+    ]
+    pred_extra = [
+        CallRecord("a", "AAA", "V", "X", "J"),
+        CallRecord("b", "BBB", "V", "", "J"),
+        CallRecord("c", "CCC", "V", "", "J"),
+    ]
+    xe = evaluate(CallExtra(), pred_extra, gold_extra)
+    @test xe.d == 0.5 && xe.d_n == 2
+    @test isnan(xe.v) && xe.v_n == 0
+    xp = evaluate(CallPresent(), pred_extra, gold_extra)
+    @test xp.d == 0.0 && xp.d_n == 1
     recs = call_records(["A"], ["D"], ["J"]; prefix = "x")
     @test length(recs) == 1 && recs[1].sequence_id == "x1" && recs[1].v_call == "A"
 end
@@ -168,6 +190,12 @@ end
     @test occursin("window.IGBENCH", html)
     @test occursin("span_gallery", html)
     @test occursin("Span disagreement vs gold", html)
+    @test occursin("Missing and extra allele calls vs gold", html)
+    @test occursin("Missed spans vs gold", html)
+    @test occursin("id=\"miss-call-chart\"", html)
+    @test occursin("id=\"miss-call-extra-plot\"", html)
+    @test occursin("gold (no call)", html)
+    @test occursin("id=\"miss-span-chart\"", html)
     @test occursin("outside this row", html)
     @test occursin("fillMsa", html)
     @test occursin("closer to gold", html)

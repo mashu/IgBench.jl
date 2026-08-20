@@ -1,7 +1,7 @@
 # metric.jl — Pluggable accuracy / agreement metrics.
 #
-# Published tool-vs-gold scores: [`AlleleAccuracy`](@ref) plus the four span
-# metrics. Empty gold skipped; empty pred vs present gold = 0.
+# Published tool-vs-gold scores: [`AlleleAccuracy`](@ref), [`CallPresent`](@ref),
+# and the span metrics. Empty gold skipped; empty pred vs present gold = 0.
 
 """Metric comparing two aligned [`CallRecord`](@ref) vectors."""
 abstract type AbstractMetric end
@@ -43,6 +43,33 @@ function locus_scores(pred::AbstractVector{CallRecord}, ref::AbstractVector{Call
                 n = n, d_n = dn, v_n = vn, j_n = jn)
 end
 
+"""Like [`locus_scores`](@ref) but only over **empty** gold (spurious pred calls)."""
+function locus_absent_gold_scores(pred::AbstractVector{CallRecord},
+                                  ref::AbstractVector{CallRecord}, score_fn)
+    length(pred) == length(ref) || error("pred/ref length mismatch")
+    n = length(pred)
+    sv = sd = sj = 0.0
+    vn = dn = jn = 0
+    for i in 1:n
+        if call_field_empty(ref[i].v_call)
+            vn += 1
+            sv += Float64(score_fn(pred[i].v_call, ref[i].v_call))
+        end
+        if call_field_empty(ref[i].j_call)
+            jn += 1
+            sj += Float64(score_fn(pred[i].j_call, ref[i].j_call))
+        end
+        if call_field_empty(ref[i].d_call)
+            dn += 1
+            sd += Float64(score_fn(pred[i].d_call, ref[i].d_call))
+        end
+    end
+    MetricValue(v = vn == 0 ? NaN : sv / vn,
+                d = dn == 0 ? NaN : sd / dn,
+                j = jn == 0 ? NaN : sj / jn,
+                n = n, d_n = dn, v_n = vn, j_n = jn)
+end
+
 """Build aligned [`CallRecord`](@ref)s from parallel V/D/J call columns."""
 function call_records(v_calls::AbstractVector, d_calls::AbstractVector,
                       j_calls::AbstractVector; prefix::AbstractString = "r")
@@ -61,6 +88,19 @@ See [`allele_score`](@ref). Empty gold skipped; empty pred = 0.
 struct AlleleAccuracy <: AbstractMetric end
 metric_name(::AlleleAccuracy) = "allele"
 evaluate(::AlleleAccuracy, pred, ref) = locus_scores(pred, ref, allele_score)
+
+"""1 if the pred call is non-empty (gold already present). Empty pred = miss."""
+call_is_present(pred::AbstractString, ::AbstractString) = !call_field_empty(pred)
+
+"""Fraction of present-gold reads where the tool emitted a call."""
+struct CallPresent <: AbstractMetric end
+metric_name(::CallPresent) = "call_present"
+evaluate(::CallPresent, pred, ref) = locus_scores(pred, ref, call_is_present)
+
+"""Fraction of empty-gold reads where the tool still emitted a call."""
+struct CallExtra <: AbstractMetric end
+metric_name(::CallExtra) = "call_extra"
+evaluate(::CallExtra, pred, ref) = locus_absent_gold_scores(pred, ref, call_is_present)
 
 """Mean of a span score_fn per locus; empty gold spans skipped."""
 function locus_span_scores(pred::AbstractVector{CallRecord},
@@ -109,9 +149,17 @@ struct SpanStop <: AbstractMetric end
 metric_name(::SpanStop) = "span_stop"
 evaluate(::SpanStop, pred, ref) = locus_span_scores(pred, ref, span_stop)
 
+"""1 if the pred span is non-empty (gold already present). Empty pred = miss."""
+span_is_present(pred::Span, ::Span) = !isempty(pred)
+
+"""Fraction of present-gold spans where the tool emitted an interval."""
+struct SpanPresent <: AbstractMetric end
+metric_name(::SpanPresent) = "span_present"
+evaluate(::SpanPresent, pred, ref) = locus_span_scores(pred, ref, span_is_present)
+
 """Default metric set: allele score plus independent span metrics."""
-default_metrics() = AbstractMetric[AlleleAccuracy(), SpanIoU(), SpanExact(),
-                                   SpanStart(), SpanStop()]
+default_metrics() = AbstractMetric[AlleleAccuracy(), CallPresent(), CallExtra(), SpanIoU(),
+                                   SpanExact(), SpanStart(), SpanStop(), SpanPresent()]
 
 """Tool-vs-tool: same metric set (allele + spans)."""
 agreement_metrics() = default_metrics()

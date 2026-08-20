@@ -59,6 +59,10 @@
       max-width: 42rem;
       line-height: 1.55;
     }
+    .hero .blurb code {
+      font-size: 0.92em;
+      color: #d4d4d8;
+    }
     .hero-top {
       display: flex;
       justify-content: space-between;
@@ -375,6 +379,18 @@
       <div class="legend" id="allele-legend"></div>
       <div class="kpis" id="allele-kpis"></div>
     </section>
+    <section id="miss-call-chart" class="hero" hidden>
+      <div class="hero-top">
+        <div>
+          <h2>Missing and extra allele calls vs gold</h2>
+          <p class="blurb">Missed: gold has a call, the tool does not. Extra: gold has no call, the tool emits one. The hollow bar is how often gold itself has no call (the extra-call denominator).</p>
+        </div>
+      </div>
+      <div class="chart" id="miss-call-plot"></div>
+      <div class="chart" id="miss-call-extra-plot"></div>
+      <div class="legend" id="miss-call-legend"></div>
+      <div class="kpis" id="miss-call-kpis"></div>
+    </section>
     <section id="timing-chart" class="hero" hidden>
       <div class="hero-top">
         <div>
@@ -385,6 +401,17 @@
       <div class="kpis" id="timing-kpis"></div>
       <div class="chart" id="timing-plot"></div>
       <div class="legend" id="timing-legend"></div>
+    </section>
+    <section id="miss-span-chart" class="hero" hidden>
+      <div class="hero-top">
+        <div>
+          <h2>Missed spans vs gold</h2>
+          <p class="blurb">Empty predicted interval when gold has that locus. Missing start and missing stop are the same empty span (no <code>sequence_start</code>/<code>end</code>). Percent of gold-present reads.</p>
+        </div>
+      </div>
+      <div class="chart" id="miss-span-plot"></div>
+      <div class="legend" id="miss-span-legend"></div>
+      <div class="kpis" id="miss-span-kpis"></div>
     </section>
     <section id="span-chart" class="hero" hidden>
       <div class="hero-top">
@@ -469,6 +496,7 @@
 
       const metrics = data.metrics || [];
       const timing = data.timing || [];
+      const gallery = data.span_gallery || [];
       const tools = data.tools || unique(metrics.map(function (r) { return r.pred; }));
       const colorOf = {};
       tools.forEach(function (t, i) { colorOf[t] = PALETTE[i % PALETTE.length]; });
@@ -506,7 +534,9 @@
           spanBinTool = null;
           spanBin = null;
           renderAlleleChart();
+          renderMissedCallChart();
           renderTimingChart();
+          renderMissedSpanChart();
           renderCloserHeatmap();
           showSpanSamples();
         });
@@ -528,8 +558,9 @@
         document.getElementById("timing-chart").hidden = false;
         renderTimingChart();
       }
+      renderMissedCallChart();
+      renderMissedSpanChart();
 
-      const gallery = data.span_gallery || [];
       let spanLocus = "v";
       let spanKind = "start";
       let spanWinner = null;
@@ -687,6 +718,230 @@
         fillLegend(document.getElementById("timing-legend"), tools.map(function (t) {
           return { name: t, color: colorOf[t] };
         }));
+      }
+
+      function locusDenom(row, loc) {
+        if (!row) return null;
+        if (loc === "d") return row.d_n;
+        if (loc === "j") return row.j_n;
+        return row.v_n != null ? row.v_n : row.n;
+      }
+
+      function missedFromPresent(row, loc) {
+        if (!row) return null;
+        const rate = row[loc];
+        const n = locusDenom(row, loc);
+        if (rate == null || n == null || typeof rate !== "number" || !isFinite(rate) || !(n > 0)) {
+          return null;
+        }
+        return { miss: Math.round((1 - rate) * n), n: n, rate: 1 - rate };
+      }
+
+      function spanMissPack(tool, loc, kind) {
+        const cell = jointCell(loc, kind);
+        const h = cell && cell.offsets && cell.offsets[tool] && cell.offsets[tool][kind];
+        if (h && h.n > 0) {
+          const miss = h.missing || 0;
+          return { miss: miss, n: h.n, rate: miss / h.n };
+        }
+        return missedFromPresent(metricGold("span_present", tool), loc);
+      }
+
+      function extraFromAbsent(row, loc) {
+        if (!row) return null;
+        const rate = row[loc];
+        const n = locusDenom(row, loc);
+        if (n == null || !(n > 0)) return null;
+        if (rate == null || typeof rate !== "number" || !isFinite(rate)) {
+          return { extra: 0, n: n, rate: 0 };
+        }
+        return { extra: Math.round(rate * n), n: n, rate: rate };
+      }
+
+      function countTick(v) {
+        const r = Math.round(v);
+        return Math.abs(v - r) < 1e-6 ? String(r) : "";
+      }
+
+      function renderMissedCallChart() {
+        const el = document.getElementById("miss-call-chart");
+        const missGroups = [
+          { key: "v", label: "V missed" },
+          { key: "d", label: "D missed" },
+          { key: "j", label: "J missed" }
+        ];
+        const extraGroups = [
+          { key: "v", label: "V extra" },
+          { key: "d", label: "D extra" },
+          { key: "j", label: "J extra" }
+        ];
+        let missMax = 0;
+        let extraMax = 0;
+        let anyMiss = false;
+        let anyExtra = false;
+        const missSeries = tools.map(function (tool) {
+          const row = metricGold("call_present", tool);
+          const packs = missGroups.map(function (g) { return missedFromPresent(row, g.key); });
+          return {
+            name: tool,
+            color: colorOf[tool],
+            packs: packs,
+            values: packs.map(function (pack) {
+              if (!pack) return null;
+              anyMiss = true;
+              if (pack.miss > missMax) missMax = pack.miss;
+              return pack.miss;
+            })
+          };
+        });
+        const extraSeries = tools.map(function (tool) {
+          const row = metricGold("call_extra", tool);
+          const packs = extraGroups.map(function (g) { return extraFromAbsent(row, g.key); });
+          return {
+            name: tool,
+            color: colorOf[tool],
+            packs: packs,
+            values: packs.map(function (pack) {
+              if (!pack) return null;
+              anyExtra = true;
+              if (pack.extra > extraMax) extraMax = pack.extra;
+              return pack.extra;
+            })
+          };
+        });
+        const goldEmpty = extraGroups.map(function (g, gi) {
+          for (let i = 0; i < extraSeries.length; i++) {
+            const pack = extraSeries[i].packs[gi];
+            if (pack && pack.n > 0) return pack.n;
+          }
+          const present = metricGold("call_present", tools[0]);
+          if (!present || !(present.n > 0)) return null;
+          const have = locusDenom(present, g.key);
+          if (have == null) return null;
+          return Math.max(0, present.n - have);
+        });
+        goldEmpty.forEach(function (v) {
+          if (v != null && v > 0) {
+            anyExtra = true;
+            if (v > extraMax) extraMax = v;
+          }
+        });
+        if (!anyMiss && !anyExtra) {
+          el.hidden = true;
+          return;
+        }
+        el.hidden = false;
+        const kpis = document.getElementById("miss-call-kpis");
+        kpis.replaceChildren();
+        const dEmpty = goldEmpty[1];
+        const nAll = (metricGold("call_present", tools[0]) || {}).n;
+        if (dEmpty) {
+          kpis.appendChild(kpiEl(String(dEmpty), "gold no D" + (nAll ? " · " + dEmpty + " / " + nAll : "")));
+        }
+        missSeries.forEach(function (s) {
+          const pack = s.packs[1];
+          if (!pack) return;
+          kpis.appendChild(kpiEl(String(pack.miss), s.name + " missed D · " + pack.miss + " / " + pack.n));
+        });
+        extraSeries.forEach(function (s) {
+          const pack = s.packs[1];
+          if (!pack) return;
+          kpis.appendChild(kpiEl(String(pack.extra), s.name + " extra D · " + pack.extra + " / " + pack.n));
+        });
+        const missPlot = document.getElementById("miss-call-plot");
+        const extraPlot = document.getElementById("miss-call-extra-plot");
+        if (anyMiss) {
+          missPlot.hidden = false;
+          missPlot.replaceChildren(
+            groupedBars(missGroups.map(function (g) { return g.label; }), missSeries, {
+              yMax: missMax <= 0 ? 1 : niceMax(missMax),
+              yTitle: "missed calls",
+              xTitle: "gold has a call · tool does not",
+              tickFmt: countTick,
+              barFmt: function (v) { return String(Math.round(v)); }
+            })
+          );
+        } else {
+          missPlot.hidden = true;
+          missPlot.replaceChildren();
+        }
+        if (anyExtra) {
+          const extraWithGold = extraSeries.slice();
+          if (goldEmpty.some(function (v) { return v != null && v > 0; })) {
+            extraWithGold.push({
+              name: "gold (no call)",
+              color: "#a1a1aa",
+              hollow: true,
+              values: goldEmpty.map(function (v) { return v != null && v > 0 ? v : null; })
+            });
+          }
+          extraPlot.hidden = false;
+          extraPlot.replaceChildren(
+            groupedBars(extraGroups.map(function (g) { return g.label; }), extraWithGold, {
+              yMax: extraMax <= 0 ? 1 : niceMax(extraMax),
+              yTitle: "extra calls",
+              xTitle: "gold has no call · hollow = gold empty",
+              tickFmt: countTick,
+              barFmt: function (v) { return String(Math.round(v)); }
+            })
+          );
+          fillLegend(document.getElementById("miss-call-legend"), extraWithGold);
+        } else {
+          extraPlot.hidden = true;
+          extraPlot.replaceChildren();
+          fillLegend(document.getElementById("miss-call-legend"), missSeries);
+        }
+      }
+
+      function renderMissedSpanChart() {
+        const el = document.getElementById("miss-span-chart");
+        const groups = [
+          { loc: "v", kind: "start", label: "V start" },
+          { loc: "v", kind: "stop", label: "V stop" },
+          { loc: "d", kind: "start", label: "D start" },
+          { loc: "d", kind: "stop", label: "D stop" },
+          { loc: "j", kind: "start", label: "J start" },
+          { loc: "j", kind: "stop", label: "J stop" }
+        ];
+        let maxV = 0;
+        let any = false;
+        const series = tools.map(function (tool) {
+          const packs = groups.map(function (g) { return spanMissPack(tool, g.loc, g.kind); });
+          return {
+            name: tool,
+            color: colorOf[tool],
+            packs: packs,
+            values: packs.map(function (pack) {
+              if (!pack) return null;
+              any = true;
+              if (pack.rate > maxV) maxV = pack.rate;
+              return pack.rate;
+            })
+          };
+        });
+        if (!any) {
+          el.hidden = true;
+          return;
+        }
+        el.hidden = false;
+        const kpis = document.getElementById("miss-span-kpis");
+        kpis.replaceChildren();
+        series.forEach(function (s) {
+          const pack = s.packs[2];
+          if (!pack) return;
+          kpis.appendChild(kpiEl(pct(pack.rate), s.name + " missed D span · " +
+            pack.miss + " / " + pack.n));
+        });
+        document.getElementById("miss-span-plot").replaceChildren(
+          groupedBars(groups.map(function (g) { return g.label; }), series, {
+            yMax: maxV <= 0 ? 0.05 : niceMax(maxV),
+            yTitle: "% missing vs gold",
+            xTitle: "locus · edge",
+            tickFmt: function (v) { return (v * 100).toFixed(v * 100 >= 10 ? 0 : 1) + "%"; },
+            barFmt: function (v) { return (v * 100).toFixed(2) + "%"; }
+          })
+        );
+        fillLegend(document.getElementById("miss-span-legend"), series);
       }
 
       function jointCell(locus, kind) {
@@ -1561,9 +1816,14 @@
               const y = T + plotH - plotH * (acc / yMax);
               const rect = svgEl("rect", {
                 x: x, y: y, width: barW, height: Math.max(h, 0),
-                fill: (s.colors && s.colors[gi]) || s.color,
+                fill: s.hollow ? "none" : ((s.colors && s.colors[gi]) || s.color),
                 rx: members.length === 1 ? "2" : "0", ry: members.length === 1 ? "2" : "0"
               });
+              if (s.hollow) {
+                rect.setAttribute("stroke", s.color);
+                rect.setAttribute("stroke-width", "1.6");
+                rect.setAttribute("stroke-dasharray", "3.5 2.5");
+              }
               const xVal = opt.xs ? opt.xs[gi] : null;
               if (opt.selected && sid === opt.selected.tool &&
                   xVal != null && String(xVal) === String(opt.selected.bin)) {
@@ -1590,7 +1850,8 @@
             const hTot = plotH * (total / yMax);
             if (!opt.noBarLabels && hTot > 14 && total > 0) {
               const tl = svgEl("text", {
-                x: x + barW / 2, y: T + plotH - hTot - 7, fill: "#fafafa",
+                x: x + barW / 2, y: T + plotH - hTot - 7,
+                fill: members.some(function (s) { return s.hollow; }) ? "#a1a1aa" : "#fafafa",
                 "font-size": "11", "text-anchor": "middle",
                 "font-family": "ui-sans-serif, system-ui, sans-serif"
               });
