@@ -225,6 +225,8 @@ end
     @test occursin("Click a missed bar", html)
     @test occursin("gold segment length", html)
     @test occursin("download FASTA", html)
+    @test occursin("drag / Shift-click a range", html)
+    @test occursin("click a bar, or drag / Shift-click", html)
     @test occursin("gold_d_nt", html)
     @test occursin("id=\"miss-span-chart\"", html)
     @test occursin("outside this row", html)

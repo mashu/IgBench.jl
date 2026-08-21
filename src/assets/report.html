@@ -107,6 +107,7 @@
     .chart svg:not([data-wide="1"]) { width: 100%; height: auto; }
     .chart svg[data-wide="1"] { flex-shrink: 0; }
     .chart svg rect.clickable { cursor: pointer; }
+    .chart svg[data-brush="1"] { touch-action: none; user-select: none; }
     .legend {
       display: flex;
       flex-wrap: wrap;
@@ -383,7 +384,7 @@
       <div class="hero-top">
         <div>
           <h2>Missing and extra allele calls vs gold</h2>
-          <p class="blurb">Missed: gold has a call, the tool does not. Extra: gold has no call, the tool emits one. The hollow bar is how often gold itself has no call (the extra-call denominator). Click a missed bar for gold lengths; click a length bar to download those reads as FASTA.</p>
+          <p class="blurb">Missed: gold has a call, the tool does not. Extra: gold has no call, the tool emits one. The hollow bar is how often gold itself has no call (the extra-call denominator). Click a missed bar for gold lengths. Click a length bar for that bin as FASTA; drag or Shift-click a second bar to download a length range (from the long end leftward is all reads at least that long).</p>
         </div>
       </div>
       <div class="chart" id="miss-call-plot"></div>
@@ -523,7 +524,8 @@
       let locus = "v";
       let missLenTool = null;
       let missLenLoc = null;
-      let missLenNt = null;
+      let missLenLo = null;
+      let missLenHi = null;
 
       if (panels.length > 1) {
         const pick = document.getElementById("panel-pick");
@@ -544,7 +546,8 @@
           spanBin = null;
           missLenTool = null;
           missLenLoc = null;
-          missLenNt = null;
+          missLenLo = null;
+          missLenHi = null;
           renderAlleleChart();
           renderMissedCallChart();
           renderTimingChart();
@@ -880,10 +883,13 @@
                 if (missLenTool === hit.series && missLenLoc === loc) {
                   missLenTool = null;
                   missLenLoc = null;
-                  missLenNt = null;
+                  missLenLo = null;
+                  missLenHi = null;
                 } else {
                   missLenTool = hit.series;
                   missLenLoc = loc;
+                  missLenLo = null;
+                  missLenHi = null;
                 }
                 renderMissedCallChart();
               }
@@ -947,10 +953,11 @@
         return String(id == null ? "read" : id).replace(/\s+/g, "_");
       }
 
-      function missReadsFasta(reads, tool, loc, len) {
+      function missReadsFasta(reads, tool, loc) {
         return reads.map(function (r) {
           const span = r.span && r.span.length === 2 ? r.span[0] + "-" + r.span[1] : "none";
           const dNt = r.d_nt ? String(r.d_nt) : "";
+          const len = r.length;
           const name = fastaHeader(r.sequence_id) + (dNt ? "|d=" + dNt : "");
           return ">" + name +
             " tool=" + tool +
@@ -965,25 +972,36 @@
         }).join("");
       }
 
-      function exportMissLenFasta(len) {
+      function missLenRangeLabel(lo, hi) {
+        return lo === hi ? lo + " nt" : lo + "–" + hi + " nt";
+      }
+
+      function missLenFileTag(lo, hi) {
+        return lo === hi ? "len" + lo : "len" + lo + "-" + hi;
+      }
+
+      function exportMissLenFasta(lo, hi) {
         const row = missHistRow(missLenTool);
         const key = missLenLoc + "_reads";
         const all = (row && row[key]) || [];
-        const reads = all.filter(function (r) { return Number(r.length) === Number(len); });
+        const reads = all.filter(function (r) {
+          const n = Number(r.length);
+          return n >= lo && n <= hi;
+        });
         const note = document.getElementById("miss-call-len-note");
-        if (!reads.length) {
-          note.hidden = false;
-          note.textContent = "No sequences stored for gold " + missLenLoc.toUpperCase() +
-            " length " + len + " nt.";
-          return;
-        }
         const loc = missLenLoc;
         const tool = missLenTool;
+        const spanLab = "gold " + loc.toUpperCase() + " " + missLenRangeLabel(lo, hi);
+        if (!reads.length) {
+          note.hidden = false;
+          note.textContent = "No sequences stored for " + spanLab + ".";
+          return;
+        }
         const fname = String(tool).replace(/[^\w.-]+/g, "_") +
-          "_missed_" + loc + "_len" + len + ".fasta";
-        downloadText(fname, missReadsFasta(reads, tool, loc, len));
+          "_missed_" + loc + "_" + missLenFileTag(lo, hi) + ".fasta";
+        downloadText(fname, missReadsFasta(reads, tool, loc));
         note.hidden = false;
-        note.textContent = "Downloaded " + reads.length + " sequences → " + fname;
+        note.textContent = "Downloaded " + reads.length + " sequences (" + spanLab + ") → " + fname;
       }
 
       function lengthAxis(bins) {
@@ -1040,9 +1058,15 @@
         lab.textContent = missLenTool + " · missed " + missLenLoc.toUpperCase() +
           " · gold segment length (nt) · " + (hist.n || 0) +
           " with span" + (nMiss != null ? " / " + nMiss + " missed" : "") +
-          " · click a length bar to download FASTA";
+          " · click a bar, or drag / Shift-click a range, to download FASTA";
         const note = document.getElementById("miss-call-len-note");
-        if (note && !missLenNt) note.hidden = true;
+        if (note && missLenLo == null) note.hidden = true;
+        function pickMissLenRange(lo, hi, download) {
+          missLenLo = Math.min(lo, hi);
+          missLenHi = Math.max(lo, hi);
+          if (download) exportMissLenFasta(missLenLo, missLenHi);
+          renderMissLenHist();
+        }
         plot.replaceChildren(
           groupedBars(axis.xs.map(function (x) { return String(x); }), [{
             name: missLenTool,
@@ -1051,17 +1075,28 @@
           }], {
             yMax: yMax <= 0 ? 1 : niceMax(yMax),
             yTitle: "missed reads",
-            xTitle: "gold " + missLenLoc.toUpperCase() + " length (nt) · click a bar to download FASTA",
+            xTitle: "gold " + missLenLoc.toUpperCase() +
+              " length (nt) · click one bar or drag a range",
             tickFmt: countTick,
             barFmt: function (v) { return String(Math.round(v)); },
             xs: axis.xs,
-            selected: missLenNt != null ? { tool: missLenTool, bin: missLenNt } : null,
+            selectedRange: missLenLo != null
+              ? { tool: missLenTool, lo: missLenLo, hi: missLenHi } : null,
             onBar: function (hit) {
               const len = axis.xs[hit.gi];
               if (len == null || !(values[hit.gi] > 0)) return;
-              missLenNt = len;
-              exportMissLenFasta(len);
-              renderMissLenHist();
+              if (hit.shift && missLenLo != null) {
+                pickMissLenRange(Math.min(missLenLo, missLenHi, len),
+                                 Math.max(missLenLo, missLenHi, len), true);
+                return;
+              }
+              pickMissLenRange(len, len, true);
+            },
+            onRange: function (hit) {
+              const a = axis.xs[hit.gi0];
+              const b = axis.xs[hit.gi1];
+              if (a == null || b == null) return;
+              pickMissLenRange(a, b, true);
             }
           })
         );
@@ -1926,6 +1961,59 @@
           svg.appendChild(xt);
         }
 
+        const brushBars = [];
+        const rangeBand = svgEl("rect", {
+          x: L, y: T, width: "0", height: plotH,
+          fill: "#f5f5f4", opacity: "0", "pointer-events": "none"
+        });
+        svg.appendChild(rangeBand);
+        function barPicked(sid, xVal) {
+          if (xVal == null) return false;
+          if (opt.selectedRange && sid === opt.selectedRange.tool) {
+            const x = Number(xVal);
+            return x >= Number(opt.selectedRange.lo) && x <= Number(opt.selectedRange.hi);
+          }
+          return !!(opt.selected && sid === opt.selected.tool &&
+            String(xVal) === String(opt.selected.bin));
+        }
+        function showRangeBand(gi0, gi1) {
+          const a = Math.min(gi0, gi1), b = Math.max(gi0, gi1);
+          rangeBand.setAttribute("x", String(L + a * gW));
+          rangeBand.setAttribute("width", String((b - a + 1) * gW));
+          rangeBand.setAttribute("opacity", "0.08");
+        }
+        function paintBrush(gi0, gi1) {
+          const a = Math.min(gi0, gi1), b = Math.max(gi0, gi1);
+          showRangeBand(a, b);
+          brushBars.forEach(function (item) {
+            const on = item.gi >= a && item.gi <= b;
+            if (on) {
+              item.rect.setAttribute("stroke", "#f5f5f4");
+              item.rect.setAttribute("stroke-width", "2");
+              item.rect.setAttribute("stroke-dasharray", "none");
+            } else if (item.hollow) {
+              item.rect.setAttribute("stroke", item.color);
+              item.rect.setAttribute("stroke-width", "1.6");
+              item.rect.setAttribute("stroke-dasharray", "3.5 2.5");
+            } else {
+              item.rect.removeAttribute("stroke");
+              item.rect.removeAttribute("stroke-width");
+              item.rect.removeAttribute("stroke-dasharray");
+            }
+          });
+        }
+        if (opt.selectedRange && opt.xs) {
+          let i0 = Infinity, i1 = -Infinity;
+          opt.xs.forEach(function (x, i) {
+            if (Number(x) >= Number(opt.selectedRange.lo) &&
+                Number(x) <= Number(opt.selectedRange.hi)) {
+              if (i < i0) i0 = i;
+              if (i > i1) i1 = i;
+            }
+          });
+          if (isFinite(i0)) showRangeBand(i0, i1);
+        }
+
         groupLabels.forEach(function (label, gi) {
           const gx = L + gi * gW;
           const ghostNotes = opt.ghost && opt.ghost[gi];
@@ -1999,13 +2087,15 @@
                 rect.setAttribute("stroke-dasharray", "3.5 2.5");
               }
               const xVal = opt.xs ? opt.xs[gi] : null;
-              if (opt.selected && sid === opt.selected.tool &&
-                  xVal != null && String(xVal) === String(opt.selected.bin)) {
+              if (barPicked(sid, xVal)) {
                 rect.setAttribute("stroke", "#f5f5f4");
                 rect.setAttribute("stroke-width", "2");
               }
-              if (opt.onBar) {
+              brushBars.push({ gi: gi, rect: rect, hollow: !!s.hollow, color: s.color });
+              if (opt.onBar || opt.onRange) {
                 rect.setAttribute("class", "clickable");
+              }
+              if (opt.onBar && !opt.onRange) {
                 rect.addEventListener("click", function () {
                   opt.onBar({
                     group: groupLabels[gi], series: sid, kind: s.kind || sid,
@@ -2053,6 +2143,53 @@
             });
           }
         });
+        if (opt.onRange) {
+          svg.setAttribute("data-brush", "1");
+          let drag0 = null;
+          function groupIndexFromEvent(ev, clamp) {
+            const ctm = svg.getScreenCTM();
+            if (!ctm) return null;
+            const pt = svg.createSVGPoint();
+            pt.x = ev.clientX;
+            pt.y = ev.clientY;
+            const loc = pt.matrixTransform(ctm.inverse());
+            let gi = Math.floor((loc.x - L) / gW);
+            if (clamp) gi = Math.max(0, Math.min(nG - 1, gi));
+            else if (gi < 0 || gi >= nG) return null;
+            return gi;
+          }
+          svg.addEventListener("pointerdown", function (ev) {
+            if (ev.button != null && ev.button !== 0) return;
+            const gi = groupIndexFromEvent(ev, false);
+            if (gi == null) return;
+            drag0 = { gi: gi, id: ev.pointerId };
+            svg.setPointerCapture(ev.pointerId);
+            ev.preventDefault();
+          });
+          svg.addEventListener("pointermove", function (ev) {
+            if (!drag0) return;
+            const gi = groupIndexFromEvent(ev, true);
+            if (gi == null) return;
+            if (gi !== drag0.gi) paintBrush(drag0.gi, gi);
+          });
+          svg.addEventListener("pointerup", function (ev) {
+            if (!drag0) return;
+            const g0 = drag0.gi;
+            const g1 = groupIndexFromEvent(ev, true);
+            drag0 = null;
+            if (g1 == null) return;
+            if (g1 !== g0) {
+              opt.onRange({ gi0: g0, gi1: g1 });
+              return;
+            }
+            if (opt.onBar) {
+              opt.onBar({
+                group: groupLabels[g1], series: stackIds[0], gi: g1, shift: !!ev.shiftKey
+              });
+            }
+          });
+          svg.addEventListener("pointercancel", function () { drag0 = null; });
+        }
         return svg;
       }
 
