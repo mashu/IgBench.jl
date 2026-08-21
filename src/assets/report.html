@@ -263,11 +263,19 @@
       font-size: 12px;
       pointer-events: none;
       min-width: 9.5rem;
+      max-width: min(26rem, calc(100vw - 1.5rem));
       line-height: 1.45;
     }
     #tip strong { display: block; margin-bottom: 0.3rem; font-size: 13px; }
-    #tip .row { color: var(--muted); display: flex; justify-content: space-between; gap: 1.25rem; }
-    #tip .row b { color: var(--fg); font-weight: 550; }
+    #tip .row {
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 1rem;
+    }
+    #tip .row span { flex: 1 1 auto; min-width: 0; }
+    #tip .row b { color: var(--fg); font-weight: 550; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
     #span-viewer { margin-top: 1.15rem; }
     #span-viewer[hidden] { display: none; }
     .span-head {
@@ -384,7 +392,7 @@
       <div class="hero-top">
         <div>
           <h2>Missing and extra allele calls vs gold</h2>
-          <p class="blurb">Missed: gold has a call, the tool does not. Extra: gold has no call, the tool emits one. The hollow bar is how often gold itself has no call (the extra-call denominator). Click a missed bar for gold lengths. Click a length bar for that bin as FASTA; drag or Shift-click a second bar to download a length range (from the long end leftward is all reads at least that long).</p>
+          <p class="blurb">Missed: gold has a call, the tool does not. Extra: gold has no call, the tool emits one. The hollow bar is how often gold itself has no call (the extra-call denominator). Darker base: also missed by the fewest-miss tool on that locus (the reference). Brighter cap: unique to this tool. Click a missed bar for gold lengths. Length FASTA is unique misses only (or all misses when this tool is the reference). Drag or Shift-click a length range.</p>
         </div>
       </div>
       <div class="chart" id="miss-call-plot"></div>
@@ -392,6 +400,7 @@
       <div id="miss-call-len" hidden>
         <p class="span-head" id="miss-call-len-lab"></p>
         <div class="chart" id="miss-call-len-plot"></div>
+        <div class="legend" id="miss-call-len-legend"></div>
         <p class="empty-note" id="miss-call-len-note" hidden></p>
       </div>
       <div class="legend" id="miss-call-legend"></div>
@@ -858,6 +867,15 @@
           if (!pack) return;
           kpis.appendChild(kpiEl(String(pack.miss), s.name + " missed D · " + pack.miss + " / " + pack.n));
         });
+        const dRef = fewestMissTool("d");
+        if (dRef) {
+          kpis.appendChild(kpiEl(dRef, "fewest missed D · reference"));
+          tools.forEach(function (t) {
+            if (t === dRef) return;
+            const nU = uniqueMissCount(t, "d", dRef);
+            kpis.appendChild(kpiEl(String(nU), t + " unique D vs " + dRef));
+          });
+        }
         extraSeries.forEach(function (s) {
           const pack = s.packs[1];
           if (!pack) return;
@@ -868,10 +886,11 @@
         if (anyMiss) {
           missPlot.hidden = false;
           missPlot.replaceChildren(
-            groupedBars(missGroups.map(function (g) { return g.label; }), missSeries, {
+            groupedBars(missGroups.map(function (g) { return g.label; }),
+              stackedMissPlotSeries(missGroups.map(function (g) { return g.key; })), {
               yMax: missMax <= 0 ? 1 : niceMax(missMax),
               yTitle: "missed calls",
-              xTitle: "gold has a call · tool does not · click a bar for lengths",
+              xTitle: "gold has a call · darker base = also missed by fewest-miss tool · brighter cap = unique · click for lengths",
               tickFmt: countTick,
               barFmt: function (v) { return String(Math.round(v)); },
               xs: missGroups.map(function (g) { return g.key; }),
@@ -936,6 +955,102 @@
         return null;
       }
 
+      function mixHex(hex, toward, t) {
+        const h = String(hex || "").replace("#", "");
+        if (h.length !== 6) return hex;
+        const mix = function (i) {
+          const c = parseInt(h.slice(i, i + 2), 16);
+          return Math.round(c + (toward - c) * t);
+        };
+        const to = function (n) {
+          const s = n.toString(16);
+          return s.length === 1 ? "0" + s : s;
+        };
+        return "#" + to(mix(0)) + to(mix(2)) + to(mix(4));
+      }
+
+      function lightenHex(hex) { return mixHex(hex, 255, 0.42); }
+
+      function missReads(tool, loc) {
+        const row = missHistRow(tool);
+        return (row && row[loc + "_reads"]) || [];
+      }
+
+      function missIdSet(tool, loc) {
+        const ids = {};
+        missReads(tool, loc).forEach(function (r) {
+          ids[String(r.sequence_id)] = true;
+        });
+        return ids;
+      }
+
+      function fewestMissTool(loc) {
+        let best = null, n = Infinity;
+        tools.forEach(function (t) {
+          const row = missHistRow(t);
+          let m = row && row[loc + "_miss"];
+          if (m == null) {
+            const pack = missedFromPresent(metricGold("call_present", t), loc);
+            m = pack ? pack.miss : Infinity;
+          }
+          if (m < n) {
+            n = m;
+            best = t;
+          }
+        });
+        return best;
+      }
+
+      function uniqueMissCount(tool, loc, ref) {
+        const ids = missIdSet(ref, loc);
+        let n = 0;
+        missReads(tool, loc).forEach(function (r) {
+          if (!ids[String(r.sequence_id)]) n++;
+        });
+        return n;
+      }
+
+      function stackedMissPlotSeries(locs) {
+        const series = [];
+        tools.forEach(function (tool) {
+          const col = colorOf[tool] || "#a1a1aa";
+          const uniqueVals = [];
+          const sharedVals = [];
+          locs.forEach(function (loc) {
+            const reads = missReads(tool, loc);
+            const pack = missedFromPresent(metricGold("call_present", tool), loc);
+            const total = reads.length ? reads.length : (pack ? pack.miss : 0);
+            const ref = fewestMissTool(loc);
+            if (!ref || ref === tool || !reads.length) {
+              uniqueVals.push(0);
+              sharedVals.push(total);
+              return;
+            }
+            const ids = missIdSet(ref, loc);
+            let u = 0, s = 0;
+            reads.forEach(function (r) {
+              if (ids[String(r.sequence_id)]) s++;
+              else u++;
+            });
+            uniqueVals.push(u);
+            sharedVals.push(s);
+          });
+          series.push({
+            name: tool + " ∩ fewest-miss",
+            stack: tool,
+            color: col,
+            values: sharedVals
+          });
+          series.push({
+            name: tool + " unique",
+            stack: tool,
+            color: lightenHex(col),
+            values: uniqueVals
+          });
+        });
+        return series;
+      }
+
       function downloadText(filename, text) {
         const blob = new Blob([text], { type: "text/plain" });
         const url = URL.createObjectURL(blob);
@@ -953,7 +1068,8 @@
         return String(id == null ? "read" : id).replace(/\s+/g, "_");
       }
 
-      function missReadsFasta(reads, tool, loc) {
+      function missReadsFasta(reads, tool, loc, extra) {
+        extra = extra || {};
         return reads.map(function (r) {
           const span = r.span && r.span.length === 2 ? r.span[0] + "-" + r.span[1] : "none";
           const dNt = r.d_nt ? String(r.d_nt) : "";
@@ -962,6 +1078,8 @@
           return ">" + name +
             " tool=" + tool +
             " missed=" + loc.toUpperCase() +
+            (extra.vs ? " vs=" + extra.vs : "") +
+            (extra.unique ? " unique=1" : "") +
             " gold_len=" + len +
             " gold_d_nt=" + (dNt || ".") +
             " gold_v=" + (r.v_call || ".") +
@@ -984,24 +1102,38 @@
         const row = missHistRow(missLenTool);
         const key = missLenLoc + "_reads";
         const all = (row && row[key]) || [];
-        const reads = all.filter(function (r) {
-          const n = Number(r.length);
-          return n >= lo && n <= hi;
-        });
-        const note = document.getElementById("miss-call-len-note");
         const loc = missLenLoc;
         const tool = missLenTool;
+        const ref = fewestMissTool(loc);
+        const vsRef = !!(ref && ref !== tool);
+        const refIds = vsRef ? missIdSet(ref, loc) : {};
+        const reads = all.filter(function (r) {
+          const n = Number(r.length);
+          if (!(n >= lo && n <= hi)) return false;
+          if (vsRef && refIds[String(r.sequence_id)]) return false;
+          return true;
+        });
+        const note = document.getElementById("miss-call-len-note");
         const spanLab = "gold " + loc.toUpperCase() + " " + missLenRangeLabel(lo, hi);
+        const kindLab = vsRef ? "unique vs " + ref : "all misses (fewest-miss reference)";
         if (!reads.length) {
           note.hidden = false;
-          note.textContent = "No sequences stored for " + spanLab + ".";
+          note.textContent = vsRef
+            ? "No unique sequences for " + spanLab + " — all also missed by " + ref + "."
+            : "No sequences stored for " + spanLab + ".";
           return;
         }
         const fname = String(tool).replace(/[^\w.-]+/g, "_") +
-          "_missed_" + loc + "_" + missLenFileTag(lo, hi) + ".fasta";
-        downloadText(fname, missReadsFasta(reads, tool, loc));
+          "_missed_" + loc +
+          (vsRef ? "_unique_vs_" + String(ref).replace(/[^\w.-]+/g, "_") : "") +
+          "_" + missLenFileTag(lo, hi) + ".fasta";
+        downloadText(fname, missReadsFasta(reads, tool, loc, {
+          vs: vsRef ? ref : "",
+          unique: vsRef
+        }));
         note.hidden = false;
-        note.textContent = "Downloaded " + reads.length + " sequences (" + spanLab + ") → " + fname;
+        note.textContent = "Downloaded " + reads.length + " " + kindLab +
+          " (" + spanLab + ") → " + fname;
       }
 
       function lengthAxis(bins) {
@@ -1029,9 +1161,11 @@
         const wrap = document.getElementById("miss-call-len");
         const lab = document.getElementById("miss-call-len-lab");
         const plot = document.getElementById("miss-call-len-plot");
+        const lenLegend = document.getElementById("miss-call-len-legend");
         if (!missLenTool || !missLenLoc) {
           wrap.hidden = true;
           plot.replaceChildren();
+          if (lenLegend) lenLegend.replaceChildren();
           const note = document.getElementById("miss-call-len-note");
           if (note) note.hidden = true;
           return;
@@ -1045,19 +1179,63 @@
           lab.textContent = missLenTool + " · missed " + missLenLoc.toUpperCase() +
             " · no gold span lengths stored" + (nMiss ? " (" + nMiss + " missed calls)" : "");
           plot.replaceChildren();
+          if (lenLegend) lenLegend.replaceChildren();
           return;
         }
         const axis = lengthAxis(bins);
-        let yMax = 0;
-        const values = axis.xs.map(function (x) {
-          const v = axis.occupied[x] || 0;
-          if (v > yMax) yMax = v;
-          return v;
+        const col = colorOf[missLenTool] || "#a1a1aa";
+        const ref = fewestMissTool(missLenLoc);
+        const vsRef = !!(ref && ref !== missLenTool);
+        const refIds = vsRef ? missIdSet(ref, missLenLoc) : {};
+        const uniqueOcc = {};
+        const sharedOcc = {};
+        missReads(missLenTool, missLenLoc).forEach(function (r) {
+          const n = Number(r.length);
+          if (!(n > 0)) return;
+          if (vsRef && refIds[String(r.sequence_id)]) {
+            sharedOcc[n] = (sharedOcc[n] || 0) + 1;
+          } else {
+            uniqueOcc[n] = (uniqueOcc[n] || 0) + 1;
+          }
         });
+        let yMax = 0;
+        let nUnique = 0;
+        const totals = axis.xs.map(function (x) {
+          const u = uniqueOcc[x] || 0;
+          const s = sharedOcc[x] || 0;
+          nUnique += u;
+          const tot = u + s;
+          if (tot > yMax) yMax = tot;
+          return tot;
+        });
+        const uniqueVals = axis.xs.map(function (x) { return uniqueOcc[x] || 0; });
+        const sharedVals = axis.xs.map(function (x) { return sharedOcc[x] || 0; });
+        const lenSeries = vsRef ? [
+          {
+            name: "also missed by " + ref,
+            stack: missLenTool,
+            color: col,
+            values: sharedVals
+          },
+          {
+            name: "only " + missLenTool,
+            stack: missLenTool,
+            color: lightenHex(col),
+            values: uniqueVals
+          }
+        ] : [{
+          name: missLenTool + " (fewest missed)",
+          stack: missLenTool,
+          color: col,
+          values: totals
+        }];
         wrap.hidden = false;
         lab.textContent = missLenTool + " · missed " + missLenLoc.toUpperCase() +
           " · gold segment length (nt) · " + (hist.n || 0) +
           " with span" + (nMiss != null ? " / " + nMiss + " missed" : "") +
+          (vsRef
+            ? " · " + nUnique + " unique vs " + ref + " (fewest missed) · FASTA is unique only"
+            : " · fewest-miss reference · FASTA is all of these misses") +
           " · click a bar, or drag / Shift-click a range, to download FASTA";
         const note = document.getElementById("miss-call-len-note");
         if (note && missLenLo == null) note.hidden = true;
@@ -1068,15 +1246,11 @@
           renderMissLenHist();
         }
         plot.replaceChildren(
-          groupedBars(axis.xs.map(function (x) { return String(x); }), [{
-            name: missLenTool,
-            color: colorOf[missLenTool] || "#a1a1aa",
-            values: values
-          }], {
+          groupedBars(axis.xs.map(function (x) { return String(x); }), lenSeries, {
             yMax: yMax <= 0 ? 1 : niceMax(yMax),
             yTitle: "missed reads",
             xTitle: "gold " + missLenLoc.toUpperCase() +
-              " length (nt) · click one bar or drag a range",
+              " length (nt) · darker shared · brighter unique · click or drag",
             tickFmt: countTick,
             barFmt: function (v) { return String(Math.round(v)); },
             xs: axis.xs,
@@ -1084,7 +1258,7 @@
               ? { tool: missLenTool, lo: missLenLo, hi: missLenHi } : null,
             onBar: function (hit) {
               const len = axis.xs[hit.gi];
-              if (len == null || !(values[hit.gi] > 0)) return;
+              if (len == null || !(totals[hit.gi] > 0)) return;
               if (hit.shift && missLenLo != null) {
                 pickMissLenRange(Math.min(missLenLo, missLenHi, len),
                                  Math.max(missLenLo, missLenHi, len), true);
@@ -1100,6 +1274,7 @@
             }
           })
         );
+        if (lenLegend) fillLegend(lenLegend, lenSeries);
       }
 
       function renderMissedSpanChart() {
@@ -1238,12 +1413,8 @@
               const t = maxWin > 0 ? Math.max(0, Math.min(1, rate / maxWin)) : rate;
               td.style.background = "rgba(159, 18, 57, " + (0.18 + 0.75 * t) + ")";
             }
-            bindTip(td, rowName + " closer than " + colName, [
-              ["closer", nWin + (n ? " / " + n : "")],
-              ["row exact, column off", String(nExact)],
-              ["both off, row closer", String(nCloser)],
-              ["tie (same |Δ|)", String(nTie)]
-            ]);
+            bindTip(td, rowName + " closer to gold than " + colName, closerHeatTipRows(
+              rowName, colName, nWin, n, nExact, nCloser, nTie));
             td.addEventListener("click", function () {
               if (spanWinner === rowName && spanLoser === colName) {
                 spanWinner = null;
@@ -1270,6 +1441,17 @@
         cap.textContent = spanWinner && spanLoser
           ? contrastCaption(cell, spanWinner, spanLoser)
           : "click a cell to unfold MSA examples for that pair";
+      }
+
+      function closerHeatTipRows(rowName, colName, nWin, n, nExact, nCloser, nTie) {
+        const ofAll = n ? " / " + n : "";
+        const ofCloser = nWin ? " of " + nWin : "";
+        return [
+          [rowName + " closer", String(nWin) + ofAll],
+          [rowName + " exact vs gold · " + colName + " not exact", String(nExact) + ofCloser],
+          ["neither exact vs gold · " + rowName + " closer", String(nCloser) + ofCloser],
+          ["tie · same distance to gold", String(nTie) + ofAll]
+        ];
       }
 
       function findContrast(cell, winner, loser) {
