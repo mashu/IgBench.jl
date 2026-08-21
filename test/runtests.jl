@@ -183,6 +183,11 @@ end
     @test data.meta["sim_set"] == "all"
     @test data.meta["assign_v"] == VFA
 
+    labeled = SimSource(; id = "toy", db_label = "fix", germline = gp,
+                        species = "toy_species", holdout_v = hold, n = 8, seed = 1,
+                        label = "IgM")
+    @test load_panel(SimGoldPanel(labeled, :all; n = 8)).meta["label"] == "IgM"
+
     closed = SimGoldPanel(src, :minus_holdout; n = 8, assign = gp, assign_label = "train")
     @test occursin("assign=train", closed.id)
     @test occursin("sim=minus_holdout", closed.id)
@@ -215,6 +220,16 @@ end
     html = read(joinpath(outdir, "report.html"), String)
     @test occursin("smoke", html)
     @test occursin("window.IGBENCH", html)
+    @test occursin("id=\"sim-download\"", html)
+    @test occursin("Download sim FASTA", html)
+    @test occursin("panel-tools[hidden]", html)
+    sim_fa = joinpath(outdir, "simulations", "toy__assign_fix__sim_all.fasta")
+    sim_airr = joinpath(outdir, "simulations", "toy__assign_fix__sim_all.airr.tsv.gz")
+    @test isfile(sim_fa)
+    @test isfile(sim_airr)
+    @test occursin(">" * data.ids[1], read(sim_fa, String))
+    panels_json = JSON.parsefile(joinpath(outdir, "panels.json"))
+    @test panels_json[data.id]["sim_fasta"] == "simulations/toy__assign_fix__sim_all.fasta"
     @test occursin("span_gallery", html)
     @test occursin("Span disagreement vs gold", html)
     @test occursin("Missing and extra allele calls vs gold", html)
@@ -256,7 +271,14 @@ end
     @test !occursin("row exact, column off", html)
     @test !occursin("both off, row closer", html)
     @test !occursin("tie (same |Δ|)", html)
-    @test occursin("bar to filter MSA to that", html)
+    @test occursin("click a bar to filter MSA", html)
+    @test occursin("id=\"span-offset-note\"", html)
+    @test occursin("id=\"span-fasta-btn\"", html)
+    @test occursin("Download FASTA", html)
+    @test occursin("exportOffsetFasta", html)
+    @test occursin("loser_reads", html)
+    @test occursin("column-tool bars", html)
+    @test occursin("winner_delta=", html)
     @test occursin("is not in this pair", html)
     @test occursin("span-exact-summary", html)
     @test occursin("offset from gold", html)
@@ -345,6 +367,8 @@ end
     @test parsed["schema_version"] == 2
     @test parsed["metrics"][1]["v"] == 0.875
     @test parsed["tools"] == ["perfect", "other"]
+    @test occursin("id=\"sim-download\"", html)
+    @test occursin("function panelLabel", html)
 
     payload["suite"] = "</script><script>alert(1)</script>"
     html_bad = IgBench.html_report(payload)
@@ -592,6 +616,14 @@ end
     @test haskey(swig_better, "bin_packs")
     @test swig_better["peak_tool"] == "igblast"
     @test swig_better["peak_bin"] == "1"
+    @test length(swig_better["loser_reads"]) == 1
+    lr = swig_better["loser_reads"][1]
+    @test lr["sequence_id"] == "s1"
+    @test lr["sequence"] == vseq
+    @test lr["delta"] == 1
+    @test lr["winner_delta"] == 0
+    @test lr["gold_span"] == [1, 8]
+    @test lr["pred_span"] == [2, 8]
     @test any(p -> p["tool"] == "igblast" && String(p["bin"]) == "1" && !isempty(p["samples"]),
               swig_better["bin_packs"])
     @test any(p -> p["tool"] == "swig" && String(p["bin"]) == "0", swig_better["bin_packs"])
@@ -609,6 +641,9 @@ end
     @test igb_better["n_exact"] == 1
     @test !isempty(igb_better["samples"])
     @test occursin("Δstop", igb_better["peak"])
+    @test length(igb_better["loser_reads"]) == 1
+    @test igb_better["loser_reads"][1]["delta"] == 2
+    @test igb_better["loser_reads"][1]["winner_delta"] == 0
 
     other = CallRecord[CallRecord("s1", vseq, "IGHV1-1*01", "IGHD1-1*01", "IGHJ1*01",
                                   Span(3, 8), Span(9, 10), Span(11, 12))]
@@ -629,4 +664,5 @@ end
     @test sh_start["closer"]["win"][1][2] == 0.0
     @test sh_start["closer"]["win"][2][1] == 0.0
     @test all(c -> c["n"] == 0, sh_start["contrasts"])
+    @test all(c -> isempty(c["loser_reads"]), sh_start["contrasts"])
 end

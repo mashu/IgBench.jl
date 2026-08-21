@@ -14,13 +14,6 @@ function compact_count_hist(values::AbstractVector{Int})
     Dict{String,Any}("n" => length(values), "bins" => bins)
 end
 
-function span_nt(seq::AbstractString, sp::Span)
-    isempty(sp) && return ""
-    n = ncodeunits(seq)
-    (sp.start < 1 || sp.stop > n) && return ""
-    String(SubString(seq, sp.start, sp.stop))
-end
-
 function miss_read_record(gold::CallRecord, sp::Span, len::Int)
     seq = gold.sequence
     Dict{String,Any}(

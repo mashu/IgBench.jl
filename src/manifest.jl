@@ -46,6 +46,7 @@ struct SimSource{F}
     holdout_v::Vector{String}
     n::Int
     seed::Int
+    label::String
     params_factory::F
 end
 
@@ -57,10 +58,11 @@ function SimSource(;
                    holdout_v = String[],
                    n::Integer = 512,
                    seed::Integer = 1,
+                   label::AbstractString = "",
                    params_factory = IgSim.train_params)
     SimSource(String(id), String(db_label), germline, String(species),
               String[String(x) for x in holdout_v],
-              Int(n), Int(seed), params_factory)
+              Int(n), Int(seed), String(label), params_factory)
 end
 
 """Named collection of sim + AIRR sources."""
@@ -88,6 +90,7 @@ function manifest_to_dict(m::DatasetManifest)
             "species" => s.species,
             "n" => s.n,
             "seed" => s.seed,
+            "label" => s.label,
             "holdout_v" => s.holdout_v,
             "germline" => germline_to_dict(s.germline),
         ) for s in m.sim],

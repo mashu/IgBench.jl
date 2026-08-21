@@ -141,23 +141,24 @@ function load_panel(p::SimGoldPanel)
     gold = CallRecord[callrecord_from_labeled(reads[i], ids[i]) for i in eachindex(reads)]
     seqs = String[r.sequence for r in reads]
     agp = p.assign
-    PanelData(p.id, src.species, agp, seqs, ids, gold,
-              Dict{String,Any}(
-                  "kind" => "sim",
-                  "sim_set" => String(p.sim_set),
-                  "db_label" => p.assign_label,
-                  "assign_v" => agp.v,
-                  "assign_d" => agp.d,
-                  "assign_j" => agp.j,
-                  "sim_v" => gp.v,
-                  "sim_d" => gp.d,
-                  "sim_j" => gp.j,
-                  "species" => src.species,
-                  "n" => length(seqs),
-                  "seed" => src.seed,
-                  "source_id" => src.id,
-                  "holdout_v" => src.holdout_v,
-              ))
+    meta = Dict{String,Any}(
+        "kind" => "sim",
+        "sim_set" => String(p.sim_set),
+        "db_label" => p.assign_label,
+        "assign_v" => agp.v,
+        "assign_d" => agp.d,
+        "assign_j" => agp.j,
+        "sim_v" => gp.v,
+        "sim_d" => gp.d,
+        "sim_j" => gp.j,
+        "species" => src.species,
+        "n" => length(seqs),
+        "seed" => src.seed,
+        "source_id" => src.id,
+        "holdout_v" => src.holdout_v,
+    )
+    !isempty(src.label) && (meta["label"] = src.label)
+    PanelData(p.id, src.species, agp, seqs, ids, gold, meta)
 end
 
 """
@@ -223,6 +224,10 @@ panel_germline(p::SimGoldPanel) = p.assign
 panel_germline(p::AirrPanel) = p.source.germline
 panel_species(p::SimGoldPanel) = p.source.species
 panel_species(p::AirrPanel) = p.source.species
+
+"""Short report name; empty means use the panel id."""
+panel_report_label(::AbstractPanel) = ""
+panel_report_label(p::SimGoldPanel) = p.source.label
 
 """
 Disk cache of frozen panel sequences + labels (AIRR TSV.gz + meta JSON).

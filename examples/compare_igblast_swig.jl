@@ -1,11 +1,12 @@
 # Compare IgBLAST vs swig-cli RIAT-MP, AER, and AER+igblast_balanced
-# on one IgSim gold panel.
+# on IgSim gold panels (IgM and IgG SHM priors).
 #
 # Annotated grid: IgBLAST + aux, swig-cli v0.37.2 with prepare-reference.
 # All tools are timed and scored on the same reads (allele + spans).
 #
 # IgSim is GitHub `main` (https://github.com/mashu/IgSim.jl). This script
-# only overrides `indel_rate` (default 0.3% of reads).
+# overrides `indel_rate` (default 0.3% of reads) and SHM isotype
+# (`shm_igm` / `shm_igg`). No constant-region sequence is simulated.
 #
 # Tools (each is annotated once and timed):
 #   igblast-aux                 IgBLAST + J/CDR3 aux
@@ -16,6 +17,7 @@
 #   export IGBENCH_V=... IGBENCH_D=... IGBENCH_J=... IGBENCH_AUX=...
 #   export IGBENCH_N=20000 IGBENCH_THREADS=8
 #   export IGBENCH_INDEL_P=0.003
+#   export IGBENCH_ISOTYPES=igm,igg
 #   julia --project=. examples/compare_igblast_swig.jl
 
 using IgBench
@@ -36,12 +38,49 @@ const ORGANISM = get(ENV, "IGBENCH_ORGANISM", "rhesus_monkey")
 const SPECIES = get(ENV, "IGBENCH_SPECIES", "rhesus")
 const AUX = get(ENV, "IGBENCH_AUX", DEFAULT_AUX)
 const OUT = get(ENV, "IGBENCH_OUT", joinpath(ROOT, "runs", "full", "igblast_swig"))
-const PANEL_ID = "sim_igsim_indelp$(INDEL_P)_n$(N)"
 
-function comparison_params()
+function parse_isotypes(raw::AbstractString)
+    out = String[]
+    for part in split(raw, ',')
+        s = lowercase(strip(String(part)))
+        isempty(s) && continue
+        (s == "igm" || s == "igg") ||
+            error("IGBENCH_ISOTYPES entries must be igm or igg, got $(part)")
+        s in out || push!(out, s)
+    end
+    isempty(out) && error("IGBENCH_ISOTYPES is empty")
+    out
+end
+
+const ISOTYPES = parse_isotypes(get(ENV, "IGBENCH_ISOTYPES", "igm,igg"))
+
+function panel_source_id(isotype::AbstractString)
+    isotype == "igm" ?
+        "sim_igsim_indelp$(INDEL_P)_n$(N)" :
+        "sim_igsim_$(isotype)_indelp$(INDEL_P)_n$(N)"
+end
+
+function comparison_params(isotype::AbstractString)
     (0 <= INDEL_P <= 1) || error("IGBENCH_INDEL_P must be in [0, 1], got $INDEL_P")
     default_indel = IgSim.train_params().indel_rate
-    IgSim.train_params(; indel_rate = IgSim.GatedRate(INDEL_P, default_indel.rate))
+    shm = isotype == "igg" ? IgSim.shm_igg() : IgSim.shm_igm()
+    IgSim.train_params(; body_error_rate = shm,
+                       indel_rate = IgSim.GatedRate(INDEL_P, default_indel.rate))
+end
+
+function isotype_label(isotype::AbstractString)
+    isotype == "igg" ? "IgG" : "IgM"
+end
+
+function seed_panel_cache!(dest::AbstractString, src::AbstractString)
+    isdir(src) || return
+    mkpath(dest)
+    for f in readdir(src)
+        dst = joinpath(dest, f)
+        isfile(dst) && continue
+        srcf = joinpath(src, f)
+        isfile(srcf) && cp(srcf, dst)
+    end
 end
 
 function swig_release_asset(version::AbstractString)
@@ -127,6 +166,7 @@ println("aux ", AUX)
 println("n ", N)
 println("threads ", THREADS)
 println("indel_p ", INDEL_P, " (", round(100 * INDEL_P; digits = 2), "% of reads)")
+println("isotypes ", join(ISOTYPES, ", "))
 println("IgSim ", pkgdir(IgSim))
 
 gp = GermlinePaths(;
@@ -136,9 +176,12 @@ gp = GermlinePaths(;
 )
 
 man = DatasetManifest("igblast_swig";
-    sim = [SimSource(; id = PANEL_ID, db_label = "assign", germline = gp,
-                     species = SPECIES, n = N, seed = 1,
-                     params_factory = comparison_params)],
+    sim = [let iso = iso
+               SimSource(; id = panel_source_id(iso), db_label = "assign",
+                         germline = gp, species = SPECIES, n = N, seed = 1,
+                         label = isotype_label(iso),
+                         params_factory = () -> comparison_params(iso))
+           end for iso in ISOTYPES],
     airr = AirrSource[],
 )
 
@@ -166,11 +209,13 @@ tools = AbstractAnnotator[
 ]
 
 store = DirectoryRunStore(OUT)
+cache_dir = joinpath(OUT, "panel_cache")
+seed_panel_cache!(cache_dir, joinpath(OUT, "panel_cache_sim_igsim_indelp$(INDEL_P)_n$(N)"))
 suite = suite_from_manifest(man, tools)
 result = run_suite(suite;
                    mode = FullReportMode(),
                    store,
-                   cache = PanelCache(joinpath(OUT, "panel_cache_$PANEL_ID")),
+                   cache = PanelCache(cache_dir),
                    reuse_predictions = true)
 println("wrote $(length(result.metrics)) metric rows → $(result.store_path)")
 println("tools: ", join(tool_name.(tools), ", "))

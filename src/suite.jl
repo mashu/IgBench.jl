@@ -115,7 +115,11 @@ function run_suite(suite::BenchSuite;
     for panel_spec in suite.panels
         panel = panel_for_mode(panel_spec, mode)
         data = load_panel_cached(panel, cache)
-        panels_meta[data.id] = data.meta
+        meta = Dict{String,Any}(data.meta)
+        lab = panel_report_label(panel)
+        !isempty(lab) && (meta["label"] = lab)
+        merge!(meta, write_simulation!(store_obj, data.id, rows_for_cache(data)))
+        panels_meta[data.id] = meta
 
         preds = Dict{String,Vector{CallRecord}}()
         for tool in suite.tools

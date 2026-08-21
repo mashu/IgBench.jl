@@ -54,7 +54,7 @@ export
     predictions_path, write_span_gallery!, write_call_miss!,
     CompareSpec, BenchSuite, BenchResult, run_suite,
     default_compares, suite_from_manifest,
-    read_airr_calls, write_airr_calls,
+    read_airr_calls, write_airr_calls, write_fasta_calls,
     parse_allele_calls, normalize_allele, allele_gene, call_field_empty,
     primary_allele_call, allele_score,
     span_iou, span_exact, span_start, span_stop,

@@ -110,6 +110,7 @@ end
 
 panel_germline(p::DropDPanel) = panel_germline(p.parent)
 panel_species(p::DropDPanel) = panel_species(p.parent)
+panel_report_label(p::DropDPanel) = panel_report_label(p.parent)
 
 function append_drop_d!(out::Vector{AbstractPanel}, p::SimGoldPanel, frac::Float64)
     push!(out, DropDPanel(p; drop_frac = frac, seed = p.source.seed))

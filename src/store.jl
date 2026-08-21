@@ -1,6 +1,6 @@
 # store.jl — Dashboard-ready run artifacts (JSON / JSONL / AIRR).
 
-const SCHEMA_VERSION = 11
+const SCHEMA_VERSION = 12
 
 """Persistence backend for a single suite run."""
 abstract type AbstractRunStore end
@@ -43,13 +43,30 @@ function write_panels_meta!(s::DirectoryRunStore, obj::AbstractDict)
     write_json(joinpath(s.root, "panels.json"), obj)
 end
 
+store_token(id::AbstractString) = replace(String(id), r"[^\w\.-]" => "_")
+
 predictions_path(::AbstractRunStore, ::AbstractString, ::AbstractString) = ""
 
 function predictions_path(s::DirectoryRunStore, panel_id::AbstractString,
                           tool::AbstractString)
-    safe_panel = replace(String(panel_id), r"[^\w\.-]" => "_")
-    safe_tool = replace(String(tool), r"[^\w\.-]" => "_")
-    joinpath(s.root, "predictions", "$(safe_panel)__$(safe_tool).airr.tsv.gz")
+    joinpath(s.root, "predictions",
+             "$(store_token(panel_id))__$(store_token(tool)).airr.tsv.gz")
+end
+
+write_simulation!(::AbstractRunStore, ::AbstractString, ::AbstractVector{CallRecord}) =
+    Dict{String,String}()
+
+"""Gold sequences for one panel: FASTA + gzipped AIRR under `simulations/`."""
+function write_simulation!(s::DirectoryRunStore, panel_id::AbstractString,
+                           rows::AbstractVector{CallRecord})
+    ensure_store!(s)
+    mkpath(joinpath(s.root, "simulations"))
+    tok = store_token(panel_id)
+    fasta_rel = "simulations/" * tok * ".fasta"
+    airr_rel = "simulations/" * tok * ".airr.tsv.gz"
+    write_fasta_calls(joinpath(s.root, fasta_rel), rows)
+    write_airr_calls(joinpath(s.root, airr_rel), rows)
+    Dict{String,String}("sim_fasta" => fasta_rel, "sim_airr" => airr_rel)
 end
 
 function write_predictions!(s::DirectoryRunStore, panel_id::AbstractString,

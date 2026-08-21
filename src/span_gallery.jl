@@ -166,6 +166,13 @@ function span_delta(::Val{:stop}, pred::Span, gold::Span)
     pred.stop - gold.stop
 end
 
+function span_nt(seq::AbstractString, sp::Span)
+    isempty(sp) && return ""
+    n = ncodeunits(seq)
+    (sp.start < 1 || sp.stop > n) && return ""
+    String(SubString(seq, sp.start, sp.stop))
+end
+
 function compact_offset_hist(deltas::AbstractVector{Int}, n_missing::Integer)
     acc = Dict{Int,Int}()
     n_zero = 0
@@ -291,6 +298,43 @@ function build_contrast_pack(preds, gold, idx, names, ixs, winner, loser, n_exac
         "offsets" => contrast_offsets(preds, gold, (winner, loser), ixs, locus),
         "bin_packs" => bin_packs,
         "samples" => peak_samples,
+        "loser_reads" => store_samples
+            ? contrast_loser_reads(preds, gold, ixs, winner, loser, locus, kind)
+            : Dict{String,Any}[],
+    )
+end
+
+"""FASTA-ready reads for the column tool on this heatmap pair, tagged with Δ vs gold."""
+function contrast_loser_reads(preds, gold, ixs, winner, loser, locus, kind)
+    reads = Dict{String,Any}[]
+    for i in ixs
+        push!(reads, contrast_loser_read(gold[i], preds[loser][i], preds[winner][i], locus, kind))
+    end
+    reads
+end
+
+function contrast_loser_read(gold::CallRecord, pred::CallRecord, winner_pred::CallRecord,
+                             locus, kind)
+    seq = gold.sequence
+    gspan = record_span(gold, locus)
+    pspan = record_span(pred, locus)
+    wspan = record_span(winner_pred, locus)
+    gs, ge = span_bounds(gspan)
+    ps, pe = span_bounds(pspan)
+    Dict{String,Any}(
+        "sequence_id" => gold.sequence_id,
+        "sequence" => seq,
+        "delta" => span_delta(kind, pspan, gspan),
+        "winner_delta" => span_delta(kind, wspan, gspan),
+        "gold_span" => gs == 0 ? Int[] : Int[gs, ge],
+        "pred_span" => ps == 0 ? Int[] : Int[ps, pe],
+        "length" => isempty(gspan) ? 0 : length(gspan),
+        "v_call" => gold.v_call,
+        "d_call" => gold.d_call,
+        "j_call" => gold.j_call,
+        "v_nt" => span_nt(seq, gold.v_span),
+        "d_nt" => span_nt(seq, gold.d_span),
+        "j_nt" => span_nt(seq, gold.j_span),
     )
 end
 

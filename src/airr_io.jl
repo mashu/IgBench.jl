@@ -101,6 +101,27 @@ function read_airr_calls(path::AbstractString;
     records
 end
 
+function fasta_span_tag(name::AbstractString, s::Span)
+    isempty(s) ? "" : " $name=$(s.start)-$(s.stop)"
+end
+
+"""Write `CallRecord` rows as FASTA; gold calls and spans go in the header."""
+function write_fasta_calls(path::AbstractString, rows::AbstractVector{CallRecord})
+    open(path, "w") do io
+        for r in rows
+            print(io, '>', r.sequence_id)
+            !isempty(r.v_call) && print(io, " v_call=", r.v_call)
+            !isempty(r.d_call) && print(io, " d_call=", r.d_call)
+            !isempty(r.j_call) && print(io, " j_call=", r.j_call)
+            print(io, fasta_span_tag("v_span", r.v_span),
+                      fasta_span_tag("d_span", r.d_span),
+                      fasta_span_tag("j_span", r.j_span),
+                      '\n', r.sequence, '\n')
+        end
+    end
+    path
+end
+
 """Write `CallRecord` rows as AIRR TSV (`.gz` if path ends with `.gz`)."""
 function write_airr_calls(path::AbstractString, rows::AbstractVector{CallRecord})
     open_airr_write(path) do io

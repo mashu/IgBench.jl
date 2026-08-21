@@ -134,6 +134,39 @@
       text-transform: uppercase;
       letter-spacing: 0.06em;
     }
+    .panel-tools {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 0.55rem 0.85rem;
+    }
+    .panel-tools[hidden] { display: none; }
+    .panel-tools button,
+    .panel-tools a.btn {
+      font: 13px/1.3 inherit;
+      color: var(--fg);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      padding: 0.35rem 0.7rem;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .panel-tools button:hover,
+    .panel-tools a.btn:hover { border-color: #52525b; }
+    .panel-tools button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .panel-tools a.link {
+      background: transparent;
+      border-color: transparent;
+      color: var(--muted);
+      padding-left: 0.15rem;
+      padding-right: 0.15rem;
+      font-size: 12px;
+      text-transform: none;
+      letter-spacing: 0;
+    }
     select {
       font: 13px/1.4 inherit;
       color: var(--fg);
@@ -347,6 +380,40 @@
       text-transform: uppercase;
       margin-bottom: 0.25rem;
     }
+    .span-fasta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.55rem 0.85rem;
+      margin: 0 0 0.55rem;
+    }
+    .span-fasta[hidden] { display: none; }
+    .span-fasta button {
+      font: 13px/1.3 inherit;
+      color: var(--fg);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      padding: 0.35rem 0.7rem;
+      cursor: pointer;
+    }
+    .span-fasta button:hover { border-color: #52525b; }
+    .span-fasta button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .span-fasta button.link {
+      background: transparent;
+      border-color: transparent;
+      color: var(--muted);
+      padding-left: 0.15rem;
+      padding-right: 0.15rem;
+    }
+    .span-fasta .lab {
+      text-transform: none;
+      letter-spacing: 0;
+      margin: 0;
+      font-size: 12.5px;
+    }
     @media (max-width: 800px) {
       .offset-grid { grid-template-columns: 1fr; }
     }
@@ -380,9 +447,13 @@
           <h2 id="allele-title">Allele accuracy vs gold</h2>
           <p class="blurb" id="allele-blurb"></p>
         </div>
-        <label class="pick" id="panel-pick" hidden>panel
-          <select id="chart-panel"></select>
-        </label>
+        <div class="panel-tools" id="panel-pick" hidden>
+          <label class="pick">panel
+            <select id="chart-panel"></select>
+          </label>
+          <button type="button" id="sim-download" disabled>Download sim FASTA</button>
+          <a class="link" id="sim-download-airr" hidden>AIRR</a>
+        </div>
       </div>
       <div class="chart" id="allele-plot"></div>
       <div class="legend" id="allele-legend"></div>
@@ -432,7 +503,7 @@
       <div class="hero-top">
         <div>
           <h2>Span disagreement vs gold</h2>
-          <p class="blurb">V/D/J and start/stop switch this whole section. The heatmap is the same scored reads: each off-diagonal cell is how often the row is closer to gold than the column on that edge (exact is closest). Click a hot cell, then a Δ bar, to unfold MSA examples for that pair and offset. Diagonal is exact vs gold and is not clickable.</p>
+          <p class="blurb">V/D/J and start/stop switch this whole section. The heatmap is the same scored reads: each off-diagonal cell is how often the row is closer to gold than the column on that edge (exact is closest). Click a hot cell, then a Δ bar, to unfold MSA examples for that pair and offset. Click or drag column-tool bars to choose which offsets to export, then Download FASTA. Diagonal is exact vs gold and is not clickable.</p>
         </div>
       </div>
       <div class="span-controls">
@@ -459,8 +530,14 @@
         <p class="span-head" id="span-viewer-title"></p>
         <div class="offset-grid" id="span-offset" hidden>
           <div>
+            <div class="span-fasta" id="span-fasta" hidden>
+              <button type="button" id="span-fasta-btn">Download FASTA</button>
+              <button type="button" class="link" id="span-fasta-all" hidden>all offsets</button>
+              <span class="lab" id="span-fasta-lab"></span>
+            </div>
             <div class="lab" id="span-offset-lab">Δ vs gold · all scored reads</div>
             <div class="chart" id="span-offset-plot"></div>
+            <p class="empty-note" id="span-offset-note" hidden></p>
           </div>
         </div>
         <div class="legend" id="span-offset-legend"></div>
@@ -536,27 +613,64 @@
       let missLenLo = null;
       let missLenHi = null;
 
-      if (panels.length > 1) {
+      function panelMeta(id) {
+        return (data.panels && data.panels[id]) || {};
+      }
+
+      function panelLabel(id) {
+        const lab = panelMeta(id).label;
+        return lab ? String(lab) : id;
+      }
+
+      function refreshSimDownload() {
+        const meta = panelMeta(chartPanel);
+        const btn = document.getElementById("sim-download");
+        const airr = document.getElementById("sim-download-airr");
+        const fasta = meta.sim_fasta;
+        const airrPath = meta.sim_airr;
+        btn.disabled = !fasta;
+        btn.onclick = function () {
+          if (!fasta) return;
+          const a = document.createElement("a");
+          a.href = fasta;
+          a.download = String(fasta).split("/").pop();
+          a.rel = "noopener";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        };
+        if (airrPath) {
+          airr.hidden = false;
+          airr.href = airrPath;
+          airr.setAttribute("download", String(airrPath).split("/").pop());
+          airr.textContent = "AIRR";
+        } else {
+          airr.hidden = true;
+          airr.removeAttribute("href");
+        }
+      }
+
+      if (panels.length) {
         const pick = document.getElementById("panel-pick");
         pick.hidden = false;
         const sel = document.getElementById("chart-panel");
         panels.forEach(function (p) {
           const opt = document.createElement("option");
           opt.value = p;
-          opt.textContent = p;
+          opt.textContent = panelLabel(p);
+          opt.title = p;
           sel.appendChild(opt);
         });
         sel.value = chartPanel;
+        refreshSimDownload();
         sel.addEventListener("change", function () {
           chartPanel = sel.value;
-          spanWinner = null;
-          spanLoser = null;
-          spanBinTool = null;
-          spanBin = null;
+          clearSpanPair();
           missLenTool = null;
           missLenLoc = null;
           missLenLo = null;
           missLenHi = null;
+          refreshSimDownload();
           renderAlleleChart();
           renderMissedCallChart();
           renderTimingChart();
@@ -591,20 +705,45 @@
       let spanLoser = null;
       let spanBinTool = null;
       let spanBin = null;
+      let spanFastaBins = null;
+
+      function clearSpanPair() {
+        spanWinner = null;
+        spanLoser = null;
+        spanBinTool = null;
+        spanBin = null;
+        spanFastaBins = null;
+      }
       if (gallery.length) {
         document.getElementById("span-chart").hidden = false;
         bindPressed("#span-locus [data-locus]", "data-locus", setLocus);
         bindPressed("#span-kind [data-kind]", "data-kind", function (v) {
           spanKind = v;
-          spanWinner = null;
-          spanLoser = null;
-          spanBinTool = null;
-          spanBin = null;
+          clearSpanPair();
           renderCloserHeatmap();
           showSpanSamples();
         });
         renderCloserHeatmap();
         showSpanSamples();
+        const fastaBtn = document.getElementById("span-fasta-btn");
+        if (fastaBtn) {
+          fastaBtn.addEventListener("click", function () {
+            if (!spanWinner || !spanLoser) return;
+            const kind = spanKind === "stop" ? "stop" : "start";
+            const cell = jointCell(spanLocus, kind);
+            const pack = findContrast(cell, spanWinner, spanLoser);
+            exportOffsetFasta(pack, spanLoser, spanWinner, spanLocus, kind, spanFastaBins);
+          });
+        }
+        const fastaAll = document.getElementById("span-fasta-all");
+        if (fastaAll) {
+          fastaAll.addEventListener("click", function () {
+            spanFastaBins = null;
+            const note = document.getElementById("span-offset-note");
+            if (note) note.hidden = true;
+            showSpanSamples();
+          });
+        }
       }
 
       const filterKeys = ["panel", "metric", "pred", "ref"];
@@ -648,9 +787,11 @@
         const n = rows.length ? rows[0].n : null;
         const species = rows.length ? rows[0].species : null;
         const title = document.getElementById("allele-title");
+        const plab = chartPanel ? panelLabel(chartPanel) : "";
         title.textContent = "Allele accuracy vs gold" + (species ? " — " + species : "");
         document.getElementById("allele-blurb").textContent =
           "Mean 1/n allele score × 100" +
+          (plab && plab !== chartPanel ? " on " + plab : "") +
           (n != null ? ". n = " + n + " reads" : "") +
           " (empty vs empty = correct; a call vs gold no-call = wrong).";
 
@@ -1098,6 +1239,133 @@
         return lo === hi ? "len" + lo : "len" + lo + "-" + hi;
       }
 
+      function offsetDeltaToken(d) {
+        if (d == null || d === "" || d === "miss") return "miss";
+        const n = Number(d);
+        if (!isFinite(n)) return String(d);
+        if (n === 0) return "0";
+        return (n > 0 ? "+" : "") + n;
+      }
+
+      function readOffsetBin(r) {
+        return r.delta == null ? "miss" : r.delta;
+      }
+
+      function binsHaveRead(bins, r) {
+        const key = String(readOffsetBin(r));
+        for (let i = 0; i < bins.length; i++) {
+          if (String(bins[i]) === key) return true;
+        }
+        return false;
+      }
+
+      function offsetRangeLabel(kind, bins) {
+        if (!bins || !bins.length) return "all offsets";
+        if (bins.length === 1) return binPhrase(bins[0], kind);
+        const bits = bins.map(function (b) { return offsetDeltaToken(b); });
+        return "Δ" + kind + " " + bits[0] + "–" + bits[bits.length - 1];
+      }
+
+      function offsetRangeFileTag(bins) {
+        if (!bins || !bins.length) return "all";
+        if (bins.length === 1) return "d" + offsetDeltaToken(bins[0]);
+        return "d" + offsetDeltaToken(bins[0]) + "_to_" + offsetDeltaToken(bins[bins.length - 1]);
+      }
+
+      function filterOffsetReads(all, bins) {
+        if (!bins || !bins.length) return all.slice();
+        return all.filter(function (r) { return binsHaveRead(bins, r); });
+      }
+
+      function offsetReadsFasta(reads, tool, vs, locus, kind) {
+        return reads.map(function (r) {
+          const goldSpan = r.gold_span && r.gold_span.length === 2
+            ? r.gold_span[0] + "-" + r.gold_span[1] : "none";
+          const predSpan = r.pred_span && r.pred_span.length === 2
+            ? r.pred_span[0] + "-" + r.pred_span[1] : "none";
+          const dNt = r.d_nt ? String(r.d_nt) : "";
+          const name = fastaHeader(r.sequence_id) + (dNt ? "|d=" + dNt : "");
+          return ">" + name +
+            " tool=" + tool +
+            " vs=" + vs +
+            " locus=" + String(locus).toUpperCase() +
+            " kind=" + kind +
+            " delta=" + offsetDeltaToken(r.delta) +
+            " winner_delta=" + offsetDeltaToken(r.winner_delta) +
+            " gold_len=" + (r.length != null ? r.length : ".") +
+            " gold_d_nt=" + (dNt || ".") +
+            " gold_v=" + (r.v_call || ".") +
+            " gold_d=" + (r.d_call || ".") +
+            " gold_j=" + (r.j_call || ".") +
+            " gold_span=" + goldSpan +
+            " pred_span=" + predSpan + "\n" +
+            (r.sequence || "") + "\n";
+        }).join("");
+      }
+
+      function exportOffsetFasta(pack, tool, vs, locus, kind, bins) {
+        const note = document.getElementById("span-offset-note");
+        const lab = offsetRangeLabel(kind, bins);
+        const all = (pack && pack.loser_reads) || [];
+        const reads = filterOffsetReads(all, bins);
+        if (!reads.length) {
+          if (note) {
+            note.hidden = false;
+            note.textContent = all.length
+              ? "No " + tool + " sequences for " + lab + "."
+              : "No sequences stored for " + tool + " on this pair.";
+          }
+          return;
+        }
+        const fname = String(tool).replace(/[^\w.-]+/g, "_") +
+          "_vs_" + String(vs).replace(/[^\w.-]+/g, "_") +
+          "_" + String(locus) + "_" + kind + "_" + offsetRangeFileTag(bins) + ".fasta";
+        downloadText(fname, offsetReadsFasta(reads, tool, vs, locus, kind));
+        if (note) {
+          note.hidden = false;
+          note.textContent = "Downloaded " + reads.length + " " + tool +
+            " reads (" + lab + " vs gold, closer pair " + vs + ") → " + fname;
+        }
+      }
+
+      function syncSpanFastaUi(pack, kind) {
+        const bar = document.getElementById("span-fasta");
+        const btn = document.getElementById("span-fasta-btn");
+        const allBtn = document.getElementById("span-fasta-all");
+        const lab = document.getElementById("span-fasta-lab");
+        if (!bar || !btn || !lab) return;
+        if (!(pack && pack.n && spanLoser && spanWinner)) {
+          bar.hidden = true;
+          return;
+        }
+        bar.hidden = false;
+        const all = pack.loser_reads || [];
+        const reads = filterOffsetReads(all, spanFastaBins);
+        const range = offsetRangeLabel(kind, spanFastaBins);
+        btn.disabled = !reads.length;
+        lab.textContent = spanLoser + " · " + range + " · " + reads.length +
+          (all.length && spanFastaBins && spanFastaBins.length
+            ? " / " + all.length : "") + " reads";
+        if (allBtn) allBtn.hidden = !(spanFastaBins && spanFastaBins.length);
+      }
+
+      function unionOffsetBins(xs, prev, bin) {
+        if (!xs || !xs.length) return [bin];
+        const giNew = xs.indexOf(bin);
+        if (!prev || !prev.length || giNew < 0) return [bin];
+        let i0 = Infinity, i1 = -Infinity;
+        prev.forEach(function (b) {
+          const i = xs.indexOf(b);
+          if (i < 0) return;
+          if (i < i0) i0 = i;
+          if (i > i1) i1 = i;
+        });
+        if (!isFinite(i0)) return [bin];
+        i0 = Math.min(i0, giNew);
+        i1 = Math.max(i1, giNew);
+        return xs.slice(i0, i1 + 1);
+      }
+
       function exportMissLenFasta(lo, hi) {
         const row = missHistRow(missLenTool);
         const key = missLenLoc + "_reads";
@@ -1417,13 +1685,11 @@
               rowName, colName, nWin, n, nExact, nCloser, nTie));
             td.addEventListener("click", function () {
               if (spanWinner === rowName && spanLoser === colName) {
-                spanWinner = null;
-                spanLoser = null;
-                spanBinTool = null;
-                spanBin = null;
+                clearSpanPair();
               } else {
                 spanWinner = rowName;
                 spanLoser = colName;
+                spanFastaBins = null;
                 const picked = findContrast(cell, rowName, colName);
                 spanBinTool = (picked && picked.peak_tool) || colName;
                 spanBin = picked && picked.peak_bin != null && picked.peak_bin !== ""
@@ -1613,10 +1879,7 @@
       function setLocus(v) {
         locus = v;
         spanLocus = v;
-        spanWinner = null;
-        spanLoser = null;
-        spanBinTool = null;
-        spanBin = null;
+        clearSpanPair();
         document.querySelectorAll("[data-locus]").forEach(function (b) {
           b.setAttribute("aria-pressed", b.getAttribute("data-locus") === v ? "true" : "false");
         });
@@ -1648,11 +1911,17 @@
           offsetWrap.hidden = true;
           msaWrap.hidden = true;
           pairs.replaceChildren();
+          const none = document.getElementById("span-offset-note");
+          if (none) none.hidden = true;
+          syncSpanFastaUi(null, kind);
           return;
         }
         const bits = [selectionLabel()];
         if (cell.n_scored != null) bits.push("n = " + cell.n_scored + " scored");
         const pack = (spanWinner && spanLoser) ? (findContrast(cell, spanWinner, spanLoser) || {}) : null;
+        const note = document.getElementById("span-offset-note");
+        if (note) note.hidden = true;
+        syncSpanFastaUi(pack, kind);
         if (pack && pack.n) {
           bits.push(pack.n + " where " + spanWinner + " is closer than " + spanLoser);
         }
@@ -1665,19 +1934,36 @@
           tools: [spanWinner, spanLoser],
           selected: (spanBinTool != null && spanBin != null && spanBin !== "")
             ? { tool: spanBinTool, bin: spanBin } : null,
+          selectedRange: (spanFastaBins && spanFastaBins.length)
+            ? { tool: spanLoser, bins: spanFastaBins } : null,
           onBar: function (hit) {
-            spanBinTool = hit.tool;
+            const tool = hit.tool || spanLoser;
+            spanBinTool = tool;
             spanBin = hit.bin;
-            showSpanSamples({ scroll: true });
+            if (tool === spanLoser) {
+              spanFastaBins = (hit.shift && spanFastaBins)
+                ? unionOffsetBins(hit.xs, spanFastaBins, hit.bin)
+                : [hit.bin];
+            }
+            showSpanSamples();
+          },
+          onRange: function (hit) {
+            spanFastaBins = hit.bins && hit.bins.length ? hit.bins : null;
+            if (spanFastaBins && spanFastaBins.length) {
+              spanBinTool = spanLoser;
+              spanBin = spanFastaBins[0];
+            }
+            showSpanSamples();
           }
         } : null;
         if (pairOffs) {
           renderOffsetPlots(pairOffs, pack.n, kind,
             "Δ " + kind + " vs gold · " + pack.n + " reads where " + spanWinner +
-            " is closer than " + spanLoser + " · click a " + spanWinner + " or " +
-            spanLoser + " bar to filter MSA to that Δ",
+            " is closer than " + spanLoser + " · click a bar to filter MSA · drag a range to select " +
+            spanLoser + " offsets, then Download FASTA",
             histClick);
         } else {
+          syncSpanFastaUi(null, kind);
           renderOffsetPlots(cell.offsets || {}, cell.n_scored, kind,
             "Δ " + kind + " vs gold · all " + (cell.n_scored != null ? cell.n_scored + " scored" : "scored") +
             " · Δ=0 = correct on " + kind);
@@ -1842,11 +2128,22 @@
           tipAll: true,
           xs: xs,
           selected: clickOpt.selected,
+          selectedRange: clickOpt.selectedRange,
           onBar: clickOpt.onBar ? function (hit) {
             clickOpt.onBar({
               tool: hit.series,
               bin: hit.xZero ? 0 : xs[hit.gi],
-              gi: hit.gi
+              gi: hit.gi,
+              shift: !!hit.shift,
+              xs: xs
+            });
+          } : null,
+          onRange: clickOpt.onRange ? function (hit) {
+            const a = Math.min(hit.gi0, hit.gi1), b = Math.max(hit.gi0, hit.gi1);
+            clickOpt.onRange({
+              gi0: hit.gi0,
+              gi1: hit.gi1,
+              bins: xs.slice(a, b + 1)
             });
           } : null
         });
@@ -2152,6 +2449,13 @@
         function barPicked(sid, xVal) {
           if (xVal == null) return false;
           if (opt.selectedRange && sid === opt.selectedRange.tool) {
+            const bins = opt.selectedRange.bins;
+            if (bins && bins.length) {
+              for (let i = 0; i < bins.length; i++) {
+                if (String(bins[i]) === String(xVal)) return true;
+              }
+              return false;
+            }
             const x = Number(xVal);
             return x >= Number(opt.selectedRange.lo) && x <= Number(opt.selectedRange.hi);
           }
@@ -2162,7 +2466,7 @@
           const a = Math.min(gi0, gi1), b = Math.max(gi0, gi1);
           rangeBand.setAttribute("x", String(L + a * gW));
           rangeBand.setAttribute("width", String((b - a + 1) * gW));
-          rangeBand.setAttribute("opacity", "0.08");
+          rangeBand.setAttribute("opacity", "0.16");
         }
         function paintBrush(gi0, gi1) {
           const a = Math.min(gi0, gi1), b = Math.max(gi0, gi1);
@@ -2186,9 +2490,13 @@
         }
         if (opt.selectedRange && opt.xs) {
           let i0 = Infinity, i1 = -Infinity;
+          const bins = opt.selectedRange.bins;
           opt.xs.forEach(function (x, i) {
-            if (Number(x) >= Number(opt.selectedRange.lo) &&
-                Number(x) <= Number(opt.selectedRange.hi)) {
+            const on = bins && bins.length
+              ? bins.some(function (b) { return String(b) === String(x); })
+              : (Number(x) >= Number(opt.selectedRange.lo) &&
+                Number(x) <= Number(opt.selectedRange.hi));
+            if (on) {
               if (i < i0) i0 = i;
               if (i > i1) i1 = i;
             }
@@ -2198,11 +2506,20 @@
 
         groupLabels.forEach(function (label, gi) {
           const gx = L + gi * gW;
+          if (opt.onRange) {
+            const pad = svgEl("rect", {
+              x: gx, y: T, width: gW, height: plotH,
+              fill: "transparent"
+            });
+            pad.setAttribute("data-gi", String(gi));
+            svg.appendChild(pad);
+          }
           const ghostNotes = opt.ghost && opt.ghost[gi];
           if (ghostNotes && ghostNotes.length) {
             const band = svgEl("rect", {
               x: gx, y: T, width: gW, height: plotH,
-              fill: "#27272a", opacity: "0.45"
+              fill: "#27272a", opacity: "0.45",
+              "pointer-events": "none"
             });
             bindTip(band, "Δ = 0 · correct vs gold on this edge", ghostNotes.map(function (g) {
               return [g.name, g.count + " correct"];
@@ -2228,16 +2545,19 @@
             const ghost = opt.ghost && opt.ghost[gi] && opt.ghost[gi][si];
             if (ghost) {
               const stub = 12;
-              const picked = opt.selected && ghost.name === opt.selected.tool &&
-                String(opt.selected.bin) === "0";
+              const picked = barPicked(ghost.name, 0);
               const rect = svgEl("rect", {
                 x: x, y: T + plotH - stub, width: barW, height: stub,
                 fill: "none", stroke: picked ? "#f5f5f4" : ghost.color,
                 "stroke-width": picked ? "2" : "1.2",
                 "stroke-dasharray": picked ? "none" : "2.5 2", rx: "2", ry: "2"
               });
-              if (opt.onBar) {
+              rect.setAttribute("data-series", ghost.name);
+              rect.setAttribute("data-gi", String(gi));
+              if (opt.onBar || opt.onRange) {
                 rect.setAttribute("class", "clickable");
+              }
+              if (opt.onBar && !opt.onRange) {
                 rect.addEventListener("click", function () {
                   opt.onBar({ group: groupLabels[gi], series: ghost.name, gi: gi, xZero: true });
                 });
@@ -2274,6 +2594,8 @@
                 rect.setAttribute("stroke-width", "2");
               }
               brushBars.push({ gi: gi, rect: rect, hollow: !!s.hollow, color: s.color });
+              rect.setAttribute("data-series", sid);
+              rect.setAttribute("data-gi", String(gi));
               if (opt.onBar || opt.onRange) {
                 rect.setAttribute("class", "clickable");
               }
@@ -2344,7 +2666,9 @@
             if (ev.button != null && ev.button !== 0) return;
             const gi = groupIndexFromEvent(ev, false);
             if (gi == null) return;
-            drag0 = { gi: gi, id: ev.pointerId };
+            const series = ev.target && ev.target.getAttribute
+              ? ev.target.getAttribute("data-series") : null;
+            drag0 = { gi: gi, id: ev.pointerId, series: series };
             svg.setPointerCapture(ev.pointerId);
             ev.preventDefault();
           });
@@ -2357,16 +2681,17 @@
           svg.addEventListener("pointerup", function (ev) {
             if (!drag0) return;
             const g0 = drag0.gi;
+            const series = drag0.series;
             const g1 = groupIndexFromEvent(ev, true);
             drag0 = null;
             if (g1 == null) return;
             if (g1 !== g0) {
-              opt.onRange({ gi0: g0, gi1: g1 });
+              opt.onRange({ gi0: g0, gi1: g1, series: series });
               return;
             }
             if (opt.onBar) {
               opt.onBar({
-                group: groupLabels[g1], series: stackIds[0], gi: g1, shift: !!ev.shiftKey
+                group: groupLabels[g1], series: series, gi: g1, shift: !!ev.shiftKey
               });
             }
           });
@@ -2390,7 +2715,8 @@
           const tr = document.createElement("tr");
           const tdP = document.createElement("td");
           tdP.className = "panel";
-          tdP.textContent = panel;
+          tdP.textContent = panelLabel(panel);
+          tdP.title = panel;
           tr.appendChild(tdP);
           tools.forEach(function (tool) {
             const td = document.createElement("td");
